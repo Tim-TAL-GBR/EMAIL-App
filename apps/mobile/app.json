@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "TeamMail",
+    "slug": "team-mail",
+    "version": "1.0.0",
+    "orientation": "default",
+    "scheme": "teammail",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.teammail.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "TeamMail benötigt Zugriff auf die Kamera, um Profilbilder aufzunehmen.",
+        "NSPhotoLibraryUsageDescription": "TeamMail benötigt Zugriff auf die Fotomediathek, um Anhänge auszuwählen.",
+        "UIBackgroundModes": [
+          "remote-notification",
+          "remote-notification"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A"
+      },
+      "package": "com.teammail.app",
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-notifications",
+      "expo-document-picker"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "87b012c7-5c17-4beb-b4a2-fbb0d67494d9"
+      }
+    }
+  }
+}

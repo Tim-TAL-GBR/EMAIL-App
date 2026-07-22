@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # 1. The Frontend (Expo Web App)
+  web:
+    build:
+      context: .
+      dockerfile: apps/mobile/Dockerfile
+    container_name: teammail-web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      # Hier kannst du Public Keys wie die Supabase URL für das Frontend hinterlegen
+      - EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL}
+      - EXPO_PUBLIC_SUPABASE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_ANON_KEY}
+    networks:
+      - teammail_net
+
+  # 2. The Backend (Node.js Express + BullMQ Worker)
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: teammail-server
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    depends_on:
+      - redis
+    networks:
+      - teammail_net
+
+  # 3. Message Queue Database (Redis)
+  redis:
+    image: redis:alpine
+    container_name: teammail-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - teammail_net
+
+volumes:
+  redis_data:
+
+networks:
+  teammail_net:
+    driver: bridge

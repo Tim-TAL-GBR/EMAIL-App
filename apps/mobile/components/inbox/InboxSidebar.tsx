@@ -1,0 +1,540 @@
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity } from 'react-native';
+import { useRouter, usePathname } from 'expo-router';
+import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout, Shadows } from '../../lib/constants';
+import { useInboxes } from '../../hooks/useInboxes';
+import { useAuthStore } from '../../stores/authStore';
+import { useNavigationStore, ContextType, FilterType } from '../../stores/navigationStore';
+import { useLabelStore } from '../../stores/useLabelStore';
+import { useEmailStore } from '../../stores/emailStore';
+import { Avatar } from '../ui/Avatar';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import { CreateLabelModal } from './CreateLabelModal';
+import { supabase } from '../../lib/supabase';
+
+interface InboxSidebarProps {
+  isDesktop?: boolean;
+}
+
+export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { inboxes } = useInboxes();
+  const { user, signOut } = useAuthStore();
+  const { activeContextType, activeContextId, activeFilter, setContext } = useNavigationStore();
+  
+  const { labels, fetchLabels, createLabel } = useLabelStore();
+  const { pinnedThreads, fetchPinnedThreads } = useEmailStore();
+  const [isCreateLabelModalOpen, setIsCreateLabelModalOpen] = useState(false);
+  
+  const [openEmailCount, setOpenEmailCount] = useState(0);
+  const [openTaskCount, setOpenTaskCount] = useState(0);
+
+  const privateInboxes = inboxes.filter(i => i.type === 'private');
+
+  // Group shared inboxes by team
+  const teamsMap = new Map<string, { id: string; name: string }>();
+  inboxes.forEach(inbox => {
+    if (inbox.type === 'shared' && inbox.team) {
+      if (!teamsMap.has(inbox.team.id)) {
+        teamsMap.set(inbox.team.id, inbox.team);
+      }
+    }
+  });
+  const teams = Array.from(teamsMap.values());
+
+  // Fetch labels for the first team (for now, assume user is in one team)
+  // Also fetch pinned threads
+  React.useEffect(() => {
+    if (teams.length > 0) {
+      fetchLabels(teams[0].id);
+    }
+    fetchPinnedThreads();
+    
+    // Fetch counts
+    const fetchCounts = async () => {
+      const { count: emailsCount } = await supabase
+        .from('emails')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'open');
+        
+      const { count: tasksCount } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'open');
+        
+      setOpenEmailCount(emailsCount || 0);
+      setOpenTaskCount(tasksCount || 0);
+    };
+    fetchCounts();
+  }, [teams.length]);
+
+  const handlePress = (type: ContextType, id: string, filter: FilterType) => {
+    setContext(type, id, filter);
+    if (!isDesktop) {
+      router.push('/inbox/list');
+    } else if (pathname.includes('/tasks') || pathname.includes('/calendars')) {
+      // Wenn wir auf Desktop sind, aber gerade in den Tasks/Calendars stecken,
+      // müssen wir die Route wieder auf Root zurücksetzen, damit das Email-Layout lädt.
+      router.push('/');
+    }
+  };
+
+  const renderFilterItem = (type: ContextType, id: string, filter: FilterType, label: string) => {
+    const isActive = activeContextType === type && activeContextId === id && activeFilter === filter;
+    return (
+      <TouchableOpacity 
+        key={filter}
+        style={[styles.filterItem, isActive && styles.filterItemActive]} 
+        onPress={() => handlePress(type, id, filter)}
+      >
+        <Text style={[styles.filterLabel, isActive && styles.filterLabelActive]}>{label}</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+
+  return (
+    <View style={[styles.container, isDesktop && styles.desktopContainer]}>
+      <View style={[styles.header, isDesktop && styles.desktopHeader]}>
+        <Text style={styles.logoText}>TeamMail</Text>
+      </View>
+
+      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.section}>
+          <TouchableOpacity 
+            style={[styles.mainNavItem, activeContextType === 'global_inbox' && !activeFilter && styles.filterItemActive]}
+            onPress={() => handlePress('global_inbox', 'global', 'needs_attention')}
+          >
+            <View style={styles.mainNavLeft}>
+              <Feather name="inbox" size={16} color={Colors.primary} style={styles.mainNavIcon} />
+              <Text style={[styles.mainNavText, activeContextType === 'global_inbox' && styles.mainNavTextActive]}>Inbox</Text>
+            </View>
+            <Text style={styles.countText}>{openEmailCount > 0 ? openEmailCount : ''}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.mainNavItem, pathname.includes('/tasks') && styles.filterItemActive]}
+            onPress={() => router.push('/(app)/tasks')}
+          >
+            <View style={styles.mainNavLeft}>
+              <Feather name="check-circle" size={16} color={pathname.includes('/tasks') ? Colors.primary : Colors.textTertiary} style={styles.mainNavIcon} />
+              <Text style={[styles.mainNavText, pathname.includes('/tasks') && styles.mainNavTextActive]}>Tasks</Text>
+            </View>
+            <Text style={styles.countText}>{openTaskCount > 0 ? openTaskCount : ''}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.mainNavItem, pathname.includes('/calendars') && styles.filterItemActive]}
+            onPress={() => router.push('/(app)/calendars')}
+          >
+            <View style={styles.mainNavLeft}>
+              <Feather name="calendar" size={16} color={pathname.includes('/calendars') ? Colors.primary : Colors.textTertiary} style={styles.mainNavIcon} />
+              <Text style={[styles.mainNavText, pathname.includes('/calendars') && styles.mainNavTextActive]}>Calendars</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <TouchableOpacity style={styles.collapsibleHeader}>
+            <Feather name="chevron-down" size={14} color={Colors.textTertiary} />
+            <Text style={styles.sectionTitle}>All</Text>
+          </TouchableOpacity>
+          <View style={styles.indentContainer}>
+            {privateInboxes.map(inbox => (
+              <TouchableOpacity 
+                key={inbox.id}
+                style={[styles.accountItem, activeContextType === 'private_inbox' && activeContextId === inbox.id && styles.filterItemActive]}
+                onPress={() => handlePress('private_inbox', inbox.id, 'needs_attention')}
+              >
+                <Feather name="hard-drive" size={14} color={Colors.textTertiary} style={styles.accountIcon} />
+                <Text style={[styles.accountText, activeContextType === 'private_inbox' && activeContextId === inbox.id && styles.mainNavTextActive]} numberOfLines={1}>
+                  {inbox.email_address}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.collapsibleHeaderRow}>
+            <TouchableOpacity style={styles.collapsibleHeader}>
+              <Feather name="chevron-down" size={14} color={Colors.textTertiary} />
+              <Text style={styles.sectionTitle}>Ordner / Labels</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.addIconButton}
+              onPress={() => setIsCreateLabelModalOpen(true)}
+            >
+              <Feather name="plus" size={14} color={Colors.textTertiary} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.indentContainer}>
+            {labels.map(label => (
+              <TouchableOpacity 
+                key={label.id}
+                style={[styles.accountItem, activeContextType === 'label' && activeContextId === label.id && styles.filterItemActive]}
+                onPress={() => handlePress('label', label.id, 'all')}
+              >
+                <Feather name="folder" size={14} color={label.color || Colors.textTertiary} style={styles.accountIcon} />
+                <Text style={[styles.accountText, activeContextType === 'label' && activeContextId === label.id && styles.mainNavTextActive]} numberOfLines={1}>
+                  {label.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {pinnedThreads.length > 0 && (
+          <View style={styles.section}>
+            <TouchableOpacity style={styles.collapsibleHeader}>
+              <Feather name="chevron-down" size={14} color={Colors.textTertiary} />
+              <Text style={styles.sectionTitle}>Favoriten</Text>
+            </TouchableOpacity>
+            <View style={styles.indentContainer}>
+              {pinnedThreads.map(pin => (
+                <TouchableOpacity 
+                  key={pin.thread_id} 
+                  style={[styles.accountItem]}
+                  onPress={() => {
+                    useNavigationStore.getState().setEmailId(pin.thread_id);
+                    useEmailStore.getState().setActiveEmail(pin.thread_id);
+                    if (!isDesktop) {
+                      router.push(`/inbox/${pin.thread_id}`);
+                    }
+                  }}
+                >
+                  <Feather name="message-circle" size={14} color={Colors.textTertiary} style={styles.accountIcon} />
+                  <Text style={[styles.accountText]} numberOfLines={1}>
+                    {pin.subject || 'Ohne Betreff'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        <View style={styles.section}>
+          <Text style={styles.subSectionTitle}>Team spaces</Text>
+          {teams.map(team => (
+            <View key={team.id} style={styles.teamSpace}>
+              <TouchableOpacity 
+                style={[styles.teamHeader, activeContextType === 'team' && activeContextId === team.id && !activeFilter && styles.filterItemActive]}
+                onPress={() => handlePress('team', team.id, 'needs_attention')}
+              >
+                <View style={[styles.teamAvatar, { backgroundColor: '#F06A6A' }]}>
+                  <Feather name="users" size={10} color="#FFF" />
+                </View>
+                <Text style={[styles.teamName, activeContextType === 'team' && activeContextId === team.id && styles.filterLabelActive]}>{team.name}</Text>
+              </TouchableOpacity>
+              {activeContextType === 'team' && activeContextId === team.id && (
+                <View style={styles.filtersContainer}>
+                  {renderFilterItem('team', team.id, 'assigned_to_me', 'Assigned to me')}
+                  {renderFilterItem('team', team.id, 'assigned_to_others', 'Assigned to others')}
+                  {renderFilterItem('team', team.id, 'done', 'Closed')}
+                  {renderFilterItem('team', team.id, 'sent', 'Sent')}
+                  {renderFilterItem('team', team.id, 'all', 'All')}
+                </View>
+              )}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+
+      <View style={styles.footer}>
+        {isProfileMenuOpen && (
+          <View style={styles.profileMenu}>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => { setIsProfileMenuOpen(false); router.push('/settings'); }}
+            >
+              <Feather name="settings" size={16} color={Colors.textSecondary} />
+              <Text style={styles.menuText}>Einstellungen</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.menuItem, styles.menuItemDanger]}
+              onPress={() => { setIsProfileMenuOpen(false); signOut(); }}
+            >
+              <Feather name="log-out" size={16} color={Colors.error} />
+              <Text style={[styles.menuText, { color: Colors.error }]}>Abmelden</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <TouchableOpacity 
+          style={styles.userInfo} 
+          activeOpacity={0.7}
+          onPress={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+        >
+          <View style={styles.otherUserAvatars}>
+            <View style={[styles.miniAvatar, { backgroundColor: '#00B388', zIndex: 2 }]}><Text style={styles.miniAvatarText}>TU</Text></View>
+            <View style={[styles.miniAvatar, { backgroundColor: '#FFB800', marginLeft: -8, zIndex: 1 }]}><Text style={styles.miniAvatarText}>E</Text></View>
+          </View>
+          <Avatar 
+            name={user?.user_metadata?.display_name || user?.email || 'User'} 
+            size={24} 
+          />
+          <View style={styles.userDetails}>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user?.user_metadata?.display_name || 'Tim Regener'}
+            </Text>
+          </View>
+          <Feather name={isProfileMenuOpen ? "chevron-down" : "chevron-up"} size={16} color={Colors.textTertiary} />
+        </TouchableOpacity>
+      </View>
+
+      <CreateLabelModal
+        visible={isCreateLabelModalOpen}
+        onClose={() => setIsCreateLabelModalOpen(false)}
+        onCreate={async (name, color) => {
+          if (teams.length > 0) {
+            await createLabel(teams[0].id, name, color);
+          }
+        }}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    width: Layout.sidebarWidth,
+    height: '100%',
+    backgroundColor: '#F9FAFB', // Light gray background matching screenshot
+    borderRightWidth: 1,
+    borderRightColor: Colors.borderLight,
+  },
+  desktopContainer: {
+    width: '100%',
+  },
+  header: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    justifyContent: 'center',
+  },
+  desktopHeader: {
+    borderBottomWidth: 0,
+  },
+  logoText: {
+    fontSize: FontSize.md,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  scrollContent: {
+    flex: 1,
+    paddingHorizontal: Spacing.xs,
+  },
+  section: {
+    marginBottom: Spacing.xl,
+  },
+  sectionTitle: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: Colors.textTertiary,
+    marginBottom: Spacing.xs,
+    letterSpacing: 1,
+    paddingHorizontal: Spacing.sm,
+    textTransform: 'uppercase',
+  },
+  subSectionTitle: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    marginBottom: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    textTransform: 'uppercase',
+    marginTop: Spacing.sm,
+  },
+  mainNavItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: 6,
+    marginBottom: 2,
+  },
+  mainNavLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mainNavIcon: {
+    marginRight: Spacing.sm,
+    width: 16,
+    textAlign: 'center',
+  },
+  mainNavText: {
+    fontSize: 13,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  mainNavTextActive: {
+    fontWeight: '600',
+  },
+  countText: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    fontWeight: 'bold',
+  },
+  collapsibleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+    marginBottom: Spacing.xs,
+    gap: 4,
+  },
+  collapsibleHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: Spacing.md,
+  },
+  addIconButton: {
+    padding: 4,
+    marginBottom: Spacing.xs,
+  },
+  indentContainer: {
+    paddingLeft: Spacing.xl,
+  },
+  accountItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: 6,
+    marginBottom: 2,
+  },
+  accountIcon: {
+    marginRight: Spacing.sm,
+    width: 14,
+    textAlign: 'center',
+  },
+  accountText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    flex: 1,
+  },
+  teamSpace: {
+    marginBottom: 2,
+  },
+  teamHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: 6,
+  },
+  headerIcon: {
+    marginRight: Spacing.sm,
+  },
+  teamAvatar: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.sm,
+  },
+  teamName: {
+    fontSize: 13,
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  filtersContainer: {
+    paddingLeft: Spacing.xl,
+    marginTop: 2,
+  },
+  filterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: 6,
+    marginBottom: 2,
+  },
+  filterItemActive: {
+    backgroundColor: '#E6F0FF', // Light blue background for active
+  },
+  filterLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  filterLabelActive: {
+    color: Colors.info, // Blue text for active
+    fontWeight: '600',
+  },
+  footer: {
+    padding: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+    backgroundColor: '#FFF',
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    padding: Spacing.sm,
+    borderRadius: 6,
+    gap: Spacing.sm,
+  },
+  otherUserAvatars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: Spacing.xs,
+  },
+  miniAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFF',
+  },
+  miniAvatarText: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
+  userDetails: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: FontSize.sm,
+    color: Colors.text,
+  },
+  profileMenu: {
+    position: 'absolute',
+    bottom: '100%',
+    left: Spacing.sm,
+    right: Spacing.sm,
+    marginBottom: Spacing.xs,
+    backgroundColor: Colors.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    padding: Spacing.xs,
+    ...Platform.select({
+      ios: Shadows.medium,
+      android: { elevation: 4 },
+    }),
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.sm,
+    borderRadius: 6,
+    gap: Spacing.sm,
+  },
+  menuItemDanger: {
+    marginTop: 2,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+  },
+  menuText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+});

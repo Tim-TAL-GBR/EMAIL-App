@@ -1,0 +1,21 @@
+{
+  "name": "teammail",
+  "private": true,
+  "scripts": {
+    "dev:server": "turbo run dev --filter=@teammail/server",
+    "dev:app": "turbo run dev --filter=@teammail/mobile",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "db:reset": "cd supabase && supabase db reset",
+    "db:migrate": "cd supabase && supabase migration up",
+    "db:types": "supabase gen types typescript --local > packages/shared/src/types/database.ts"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
