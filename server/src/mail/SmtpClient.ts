@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { mailManager } from "./MailManager.js";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
+import { decrypt } from "../utils/encryption.js";
 
 interface SendEmailParams {
   inboxId: string;
@@ -46,7 +47,7 @@ export class SmtpClient {
       secure: inbox.smtp_port === 465,
       auth: {
         user: inbox.smtp_user,
-        pass: inbox.smtp_pass,
+        pass: decrypt(inbox.smtp_pass),
       },
     });
 
@@ -105,7 +106,8 @@ export class SmtpClient {
     }
 
     // Determine thread_id
-    let threadId = info.messageId;
+    const cleanMessageId = info.messageId?.replace(/[<>]/g, '') || '';
+    let threadId = cleanMessageId;
     if (params.inReplyTo) {
       const cleanInReplyTo = params.inReplyTo.replace(/[<>]/g, "");
       const { data: parentEmail } = await supabase
@@ -120,7 +122,7 @@ export class SmtpClient {
       } else if (parentEmail) {
         threadId = parentEmail.message_id;
       } else {
-        threadId = params.inReplyTo;
+        threadId = cleanInReplyTo;
       }
     }
 
@@ -128,7 +130,7 @@ export class SmtpClient {
     const { data: newEmail, error: insertError } = await supabase.from("emails").insert({
       inbox_id: params.inboxId,
       team_id: params.teamId,
-      message_id: info.messageId,
+      message_id: cleanMessageId,
       thread_id: threadId,
       subject: params.subject,
       from_address: inbox.email_address,

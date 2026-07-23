@@ -113,8 +113,15 @@ interface EmailState {
   error: string | null;
   _currentFetchId: number;
 
+  /** Whether more emails are being fetched */
+  isLoadingMore: boolean;
+  /** Whether there are more emails to fetch */
+  hasMoreEmails: boolean;
+
   /** Fetch emails for the active context */
-  fetchEmails: (inboxIds: string[], labelId?: string, contextType?: string) => Promise<void>;
+  fetchEmails: (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => Promise<void>;
+  /** Fetch next page of emails */
+  fetchMoreEmails: (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => Promise<void>;
   /** Set the active email/thread by ID */
   setActiveEmail: (id: string | null) => void;
   /** Get a single email by ID */
@@ -151,6 +158,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   threads: [],
   activeEmailId: null,
   isLoading: false,
+  isLoadingMore: false,
+  hasMoreEmails: false,
   error: null,
 
   getEmailById: (id) => {
@@ -159,7 +168,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   _currentFetchId: 0,
   
-  fetchEmails: async (inboxIds: string[], labelId?: string, contextType?: string) => {
+  fetchEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => {
     const fetchId = Date.now();
     set({ isLoading: true, error: null, _currentFetchId: fetchId });
 
@@ -178,26 +187,30 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             ? `${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline), email_labels!inner(label_id)`
             : `${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`
         )
-        .eq('is_archived', false)
-        .eq('is_deleted', false);
-        
       if (contextType === 'assigned') {
         const userId = (await supabase.auth.getUser()).data.user?.id;
         query = supabase
           .from('emails')
           .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
-          .eq('is_archived', false)
-          .eq('is_deleted', false)
           .eq('email_assignments.assigned_to', userId);
       } else {
         query = query.in('inbox_id', inboxIds);
+      }
+      
+      if (filterType === 'trash') {
+        query = query.eq('is_deleted', true);
+      } else if (filterType === 'archived') {
+        query = query.eq('is_archived', true);
+      } else {
+        query = query.eq('is_archived', false).eq('is_deleted', false);
       }
       
       if (labelId) {
         query = query.eq('email_labels.label_id', labelId);
       }
       
-      const { data, error } = await query.order('last_activity_at', { ascending: false }).limit(200);
+      const limit = 50;
+      const { data, error } = await query.order('last_activity_at', { ascending: false }).limit(limit);
 
       if (error) {
         console.error('Fetch emails error:', error);
@@ -211,12 +224,90 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }
 
       const emails = (data as Email[]) ?? [];
-      set({ emails, threads: computeThreads(emails), isLoading: false });
+      set({ emails, threads: computeThreads(emails), isLoading: false, hasMoreEmails: emails.length === limit });
     } catch (err) {
       if (get()._currentFetchId !== fetchId) return;
       set({
         error: err instanceof Error ? err.message : 'Failed to fetch emails',
         isLoading: false,
+      });
+    }
+  },
+
+  fetchMoreEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => {
+    if (get().isLoadingMore || !get().hasMoreEmails) return;
+    set({ isLoadingMore: true, error: null });
+
+    if (contextType !== 'assigned' && (!inboxIds || inboxIds.length === 0)) {
+      set({ isLoadingMore: false });
+      return;
+    }
+
+    try {
+      const baseColumns = 'id, inbox_id, team_id, message_id, thread_id, subject, from_address, to_addresses, cc_addresses, bcc_addresses, direction, status, is_read, is_starred, is_deleted, is_archived, received_at, created_at, updated_at, imap_uid, mailbox_name, tags, snooze_until, last_activity_at, snippet';
+
+      let query = supabase
+        .from('emails')
+        .select(
+          labelId 
+            ? `${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline), email_labels!inner(label_id)`
+            : `${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`
+        );
+
+      if (contextType === 'assigned') {
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        query = supabase
+          .from('emails')
+          .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
+          .eq('email_assignments.assigned_to', userId);
+      } else {
+        query = query.in('inbox_id', inboxIds);
+      }
+      
+      if (filterType === 'trash') {
+        query = query.eq('is_deleted', true);
+      } else if (filterType === 'archived') {
+        query = query.eq('is_archived', true);
+      } else {
+        query = query.eq('is_archived', false).eq('is_deleted', false);
+      }
+      
+      if (labelId) {
+        query = query.eq('email_labels.label_id', labelId);
+      }
+      
+      const currentEmails = get().emails;
+      const offset = currentEmails.length;
+      const limit = 50;
+      
+      const { data, error } = await query
+        .order('last_activity_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (error) {
+        console.error('Fetch more emails error:', error);
+        set({ error: error.message, isLoadingMore: false });
+        return;
+      }
+
+      const newEmails = (data as Email[]) ?? [];
+      
+      // Filter out any potential duplicates that might have been added via realtime while fetching
+      const existingIds = new Set(currentEmails.map(e => e.id));
+      const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
+      
+      const allEmails = [...currentEmails, ...uniqueNewEmails];
+      
+      set({ 
+        emails: allEmails, 
+        threads: computeThreads(allEmails), 
+        isLoadingMore: false, 
+        hasMoreEmails: newEmails.length === limit 
+      });
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : 'Failed to fetch more emails',
+        isLoadingMore: false,
       });
     }
   },
@@ -243,7 +334,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const emails = state.emails.map((e) =>
         e.id === emailId ? { ...e, status } : e,
       );
-      return { emails, threads: computeThreads(emails) };
+      const threads = state.threads.map(t => {
+        if (t.emails.some(e => e.id === emailId)) {
+          return {
+            ...t,
+            emails: t.emails.map(e => e.id === emailId ? { ...e, status } : e),
+            latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, status } : t.latestEmail
+          };
+        }
+        return t;
+      });
+      return { emails, threads };
     });
 
     const { error } = await supabase
@@ -257,7 +358,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         const emails = state.emails.map((e) =>
           e.id === emailId ? { ...e, status: oldStatus } : e,
         );
-        return { emails, threads: computeThreads(emails) };
+        const threads = state.threads.map(t => {
+          if (t.emails.some(e => e.id === emailId)) {
+            return {
+              ...t,
+              emails: t.emails.map(e => e.id === emailId ? { ...e, status: oldStatus } : e),
+              latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, status: oldStatus } : t.latestEmail
+            };
+          }
+          return t;
+        });
+        return { emails, threads };
       });
     }
   },
@@ -272,7 +383,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const emails = state.emails.map((e) =>
         e.id === emailId ? { ...e, snooze_until: newSnoozeStr, status: 'done' as EmailStatus } : e,
       );
-      return { emails, threads: computeThreads(emails) };
+      const threads = state.threads.map(t => {
+        if (t.emails.some(e => e.id === emailId)) {
+          return {
+            ...t,
+            emails: t.emails.map(e => e.id === emailId ? { ...e, snooze_until: newSnoozeStr, status: 'done' as EmailStatus } : e),
+            latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, snooze_until: newSnoozeStr, status: 'done' as EmailStatus } : t.latestEmail
+          };
+        }
+        return t;
+      });
+      return { emails, threads };
     });
 
     const { error } = await supabase
@@ -285,7 +406,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         const emails = state.emails.map((e) =>
           e.id === emailId ? { ...e, snooze_until: oldSnooze, status: oldEmail.status } : e,
         );
-        return { emails, threads: computeThreads(emails) };
+        const threads = state.threads.map(t => {
+          if (t.emails.some(e => e.id === emailId)) {
+            return {
+              ...t,
+              emails: t.emails.map(e => e.id === emailId ? { ...e, snooze_until: oldSnooze, status: oldEmail.status } : e),
+              latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, snooze_until: oldSnooze, status: oldEmail.status } : t.latestEmail
+            };
+          }
+          return t;
+        });
+        return { emails, threads };
       });
     }
   },
@@ -301,7 +432,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const emails = state.emails.map((e) =>
         e.id === emailId ? { ...e, is_starred: newStarred } : e,
       );
-      return { emails, threads: computeThreads(emails) };
+      const threads = state.threads.map(t => {
+        if (t.emails.some(e => e.id === emailId)) {
+          const updatedEmails = t.emails.map(e => e.id === emailId ? { ...e, is_starred: newStarred } : e);
+          return {
+            ...t,
+            emails: updatedEmails,
+            latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, is_starred: newStarred } : t.latestEmail,
+            is_starred: updatedEmails.some(e => e.is_starred)
+          };
+        }
+        return t;
+      });
+      return { emails, threads };
     });
 
     const { error } = await supabase
@@ -315,7 +458,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         const emails = state.emails.map((e) =>
           e.id === emailId ? { ...e, is_starred: !newStarred } : e,
         );
-        return { emails, threads: computeThreads(emails) };
+        const threads = state.threads.map(t => {
+          if (t.emails.some(e => e.id === emailId)) {
+            const updatedEmails = t.emails.map(e => e.id === emailId ? { ...e, is_starred: !newStarred } : e);
+            return {
+              ...t,
+              emails: updatedEmails,
+              latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, is_starred: !newStarred } : t.latestEmail,
+              is_starred: updatedEmails.some(e => e.is_starred)
+            };
+          }
+          return t;
+        });
+        return { emails, threads };
       });
     }
   },
@@ -325,7 +480,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const emails = state.emails.map((e) =>
         e.id === emailId ? { ...e, is_read: true } : e,
       );
-      return { emails, threads: computeThreads(emails) };
+      const threads = state.threads.map(t => {
+        if (t.emails.some(e => e.id === emailId)) {
+          const updatedEmails = t.emails.map(e => e.id === emailId ? { ...e, is_read: true } : e);
+          return {
+            ...t,
+            emails: updatedEmails,
+            latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, is_read: true } : t.latestEmail,
+            is_read: updatedEmails.every(e => e.is_read)
+          };
+        }
+        return t;
+      });
+      return { emails, threads };
     });
 
     await supabase
@@ -353,22 +520,53 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const emails = state.emails.map((e) =>
         e.id === updatedEmail.id ? { ...e, ...updatedEmail } : e,
       );
-      return { emails, threads: computeThreads(emails) };
+      const threads = state.threads.map(t => {
+        if (t.emails.some(e => e.id === updatedEmail.id)) {
+          const newEmails = t.emails.map(e => e.id === updatedEmail.id ? { ...e, ...updatedEmail } : e);
+          return {
+            ...t,
+            emails: newEmails,
+            latestEmail: t.latestEmail.id === updatedEmail.id ? { ...t.latestEmail, ...updatedEmail } : t.latestEmail,
+            is_read: newEmails.every(e => e.is_read),
+            is_starred: newEmails.some(e => e.is_starred)
+          };
+        }
+        return t;
+      });
+      return { emails, threads };
     });
   },
 
   removeEmail: (emailId) => {
     set((state) => {
       const emails = state.emails.filter((e) => e.id !== emailId);
+      const threads = state.threads.map(t => {
+        if (t.emails.some(e => e.id === emailId)) {
+          const newEmails = t.emails.filter(e => e.id !== emailId);
+          if (newEmails.length === 0) return null;
+          return {
+            ...t,
+            emails: newEmails,
+            latestEmail: newEmails[newEmails.length - 1],
+            is_read: newEmails.every(e => e.is_read),
+            is_starred: newEmails.some(e => e.is_starred),
+          };
+        }
+        return t;
+      }).filter(Boolean) as Thread[];
       return {
         emails,
-        threads: computeThreads(emails),
+        threads,
         activeEmailId: state.activeEmailId === emailId ? null : state.activeEmailId,
       };
     });
   },
 
   archiveEmail: async (emailId) => {
+    const originalEmails = get().emails;
+    const originalThreads = get().threads;
+    const originalActive = get().activeEmailId;
+    
     // Optimistic removal
     get().removeEmail(emailId);
     try {
@@ -382,11 +580,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       if (!response.ok) throw new Error('Failed to archive');
     } catch (e) {
       console.error(e);
-      // Ideally revert optimistic update, but keeping it simple for now
+      // Revert optimistic update
+      set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
     }
   },
 
   deleteEmail: async (emailId) => {
+    const originalEmails = get().emails;
+    const originalThreads = get().threads;
+    const originalActive = get().activeEmailId;
+    
     get().removeEmail(emailId);
     try {
       const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
@@ -399,7 +602,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       if (!response.ok) throw new Error('Failed to delete');
     } catch (e) {
       console.error(e);
-      // Revert omitted for brevity
+      // Revert optimistic update
+      set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
     }
   },
 

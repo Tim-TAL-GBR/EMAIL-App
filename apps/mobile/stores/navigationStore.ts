@@ -10,6 +10,8 @@ export type FilterType =
   | 'done' 
   | 'sent' 
   | 'drafts' 
+  | 'archived'
+  | 'trash'
   | 'all';
 
 interface NavigationState {

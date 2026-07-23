@@ -15,7 +15,7 @@ interface EmailListItemProps {
   onContextMenu?: (thread: Thread, position: { x: number, y: number }) => void;
 }
 
-export function EmailListItem({ thread, onPress, isSelected = false, onContextMenu }: EmailListItemProps) {
+export const EmailListItem = React.memo(function EmailListItem({ thread, onPress, isSelected = false, onContextMenu }: EmailListItemProps) {
   const isUnread = !thread.is_read;
   
   const dateObj = thread.latestEmail.received_at ? parseISO(thread.latestEmail.received_at) : new Date();
@@ -143,12 +143,12 @@ export function EmailListItem({ thread, onPress, isSelected = false, onContextMe
         </View>
         
         <Text style={[styles.previewText, isSelected && styles.textSelectedSecondary]} numberOfLines={1}>
-          {thread.latestEmail.body_text?.replace(/\s+/g, ' ').trim() || ''}
+          {thread.latestEmail.snippet || ''}
         </Text>
       </View>
     </TouchableOpacity>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

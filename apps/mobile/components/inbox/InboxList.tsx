@@ -21,6 +21,8 @@ import { supabase } from '../../lib/supabase';
 import { RuleComposer } from '../rules/RuleComposer';
 import { RuleCondition } from '../../stores/ruleStore';
 import { useComposerStore } from '../../stores/composerStore';
+import { Feather } from '@expo/vector-icons';
+import { TouchableOpacity, ActivityIndicator } from 'react-native';
 
 interface InboxListProps {
   isDesktop?: boolean;
@@ -48,7 +50,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   console.log('[DEBUG] activeContextType:', activeContextType, 'activeContextId:', activeContextId, 'computed inboxIds:', inboxIds);
 
   const labelId = activeContextType === 'label' ? activeContextId : undefined;
-  const { threads, isLoading, refetch } = useEmails(inboxIds, labelId, activeContextType);
+  const { threads, isLoading, isLoadingMore, hasMoreEmails, fetchMoreEmails, refetch } = useEmails(inboxIds, labelId, activeContextType, activeFilter);
   const { drafts, isLoading: draftsLoading, refetch: refetchDrafts } = useDraftsList(inboxIds);
   const { session, user } = useAuthStore();
   const { openComposer } = useComposerStore();
@@ -66,6 +68,32 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   const [contextAssignVisible, setContextAssignVisible] = useState(false);
   const [ruleComposerVisible, setRuleComposerVisible] = useState(false);
   const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>();
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const triggerSync = async () => {
+    if (!activeContextId || activeContextType !== 'private_inbox') return;
+    setIsSyncing(true);
+    try {
+      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${baseUrl}/api/inboxes/${activeContextId}/reconnect`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
+      if (response.ok) {
+        setTimeout(() => {
+           handleRefresh();
+           setIsSyncing(false);
+        }, 2000);
+      } else {
+        setIsSyncing(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setIsSyncing(false);
+    }
+  };
 
   const handleContextMenu = (thread: Thread, position: { x: number, y: number }) => {
     setContextMenuThread(thread);
@@ -150,6 +178,9 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
       return isAssignedToAnyone && !isAssignedToMe;
     }
     if (activeFilter === 'sent') return t.latestEmail.direction === 'outbound';
+    if (activeFilter === 'trash') return t.latestEmail.is_deleted === true;
+    if (activeFilter === 'archived') return t.latestEmail.is_archived === true;
+    
     return t.latestEmail.status === activeFilter;
   });
 
@@ -198,9 +229,25 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
 
   return (
     <View style={styles.container}>
+      {activeContextType === 'private_inbox' && (
+        <View style={styles.syncHeader}>
+          <TouchableOpacity 
+            onPress={triggerSync} 
+            disabled={isSyncing}
+            style={styles.syncIconButton}
+            activeOpacity={0.7}
+          >
+            {isSyncing ? (
+              <ActivityIndicator size="small" color={Colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} />
+            ) : (
+              <Feather name="refresh-cw" size={12} color={Colors.textSecondary} />
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
       <SectionList
         sections={sections as any}
-        keyExtractor={(item: any) => item.id || Math.random().toString()}
+        keyExtractor={(item: any) => item.id || item.thread_id || item.latestEmail?.id || `fallback-${item.subject}`}
         renderSectionHeader={({ section: { title } }) => (
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionHeaderText}>{title}</Text>
@@ -225,20 +272,35 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
             onRefresh={handleRefresh} 
           />
         }
+        onEndReached={() => {
+          if (activeFilter !== 'drafts' && hasMoreEmails && !isLoadingMore) {
+            fetchMoreEmails();
+          }
+        }}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View style={{ padding: Spacing.md, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           <EmptyState icon="" title="Keine E-Mails" subtitle="Dieser Ordner ist leer." />
         }
         stickySectionHeadersEnabled={false}
       />
 
-      <Button 
-        title="Neue E-Mail" 
-        onPress={() => openComposer({
-          mode: 'new',
-          inboxId: activeContextType === 'private_inbox' ? activeContextId! : '',
-        })} 
-        style={styles.composeButton}
-      />
+      <View style={styles.floatingButtons}>
+        <Button 
+          title="Neue E-Mail" 
+          onPress={() => openComposer({
+            mode: 'new',
+            inboxId: activeContextType === 'private_inbox' ? activeContextId! : '',
+          })} 
+          style={styles.composeBtnInner}
+        />
+      </View>
 
       <PopoverMenu
         visible={contextMenuVisible}
@@ -275,7 +337,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
             if (contextMenuThread) toggleStar(contextMenuThread.latestEmail.id);
           } },
           { id: 'trash', label: 'Löschen', icon: 'trash-2', destructive: true, onPress: () => {
-            if (contextMenuThread) deleteEmail(contextMenuThread.id);
+            if (contextMenuThread) deleteEmail(contextMenuThread.latestEmail.id);
           } },
           { id: 'read', label: contextMenuThread?.is_read ? 'Als ungelesen markieren' : 'Als gelesen markieren', icon: 'mail', onPress: () => {
             // we don't have mark as unread in store yet, so just alert or mark read
@@ -409,13 +471,42 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
   },
   composeButton: {
+    // keeping for backwards compatibility if needed
+  },
+  floatingButtons: {
     position: 'absolute',
     bottom: Spacing.xl,
     right: Spacing.xl,
+    flexDirection: 'row',
+    gap: Spacing.sm,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+  },
+  composeBtnInner: {
+    // inner styles if needed
+  },
+  syncHeader: {
+    position: 'absolute',
+    top: 6,
+    right: 12,
+    zIndex: 10,
+  },
+  syncIconButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   }
 });

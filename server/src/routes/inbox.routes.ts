@@ -3,6 +3,9 @@ import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { canAccessInbox } from "../realtime/guards.js";
 import { ImapFlow } from "imapflow";
+import { z } from "zod";
+import { validateBody } from "../middleware/validate.middleware.js";
+import { encrypt, decrypt } from "../utils/encryption.js";
 
 export const inboxRouter: Router = Router();
 
@@ -143,10 +146,10 @@ inboxRouter.post("/:inboxId/reconnect", async (req, res) => {
   }
 });
 
-inboxRouter.post("/:inboxId/archive-bulk", async (req, res) => {
+inboxRouter.post("/:inboxId/archive-bulk", validateBody(z.object({ beforeDate: z.string().min(10) })), async (req, res) => {
   try {
     const userId = req.user!.sub;
-    const { inboxId } = req.params;
+    const inboxId = req.params.inboxId as string;
     const { beforeDate } = req.body; // YYYY-MM-DD
 
     if (!beforeDate) {
@@ -171,7 +174,7 @@ inboxRouter.post("/:inboxId/archive-bulk", async (req, res) => {
       .update({ status: "done" })
       .eq("inbox_id", inboxId)
       .eq("status", "open")
-      .lt("date", dateStr)
+      .lt("received_at", dateStr)
       .select();
 
     if (error) throw error;
@@ -247,6 +250,82 @@ inboxRouter.delete("/:inboxId", async (req, res) => {
   }
 });
 
+inboxRouter.patch("/:inboxId/credentials", validateBody(z.object({
+  imapHost: z.string().min(1),
+  imapPort: z.number().int().positive(),
+  imapUser: z.string().min(1),
+  imapPass: z.string().min(1),
+  smtpHost: z.string().min(1),
+  smtpPort: z.number().int().positive(),
+  smtpUser: z.string().min(1),
+  smtpPass: z.string().min(1),
+  imapSecure: z.boolean(),
+  smtpSecure: z.boolean(),
+})), async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const { inboxId } = req.params;
+    const supabase = getSupabaseAdmin();
+
+    // Verify inbox exists and load its type/owner
+    const { data: inbox, error: fetchError } = await supabase
+      .from("inboxes")
+      .select("id, type, owner_id, team_id")
+      .eq("id", inboxId)
+      .single();
+
+    if (fetchError || !inbox) {
+      res.status(404).json({ error: "Postfach nicht gefunden" });
+      return;
+    }
+
+    // Permission check
+    if (inbox.type === "private") {
+      if (inbox.owner_id !== userId) {
+        res.status(403).json({ error: "Nur der Eigentümer kann Zugangsdaten ändern" });
+        return;
+      }
+    } else {
+      const { data: membership } = await supabase
+        .from("team_members")
+        .select("role")
+        .eq("team_id", inbox.team_id)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (!membership || !["owner", "admin"].includes(membership.role)) {
+        res.status(403).json({ error: "Nur Team-Admins können Zugangsdaten ändern" });
+        return;
+      }
+    }
+
+    const { imapHost, imapPort, imapUser, imapPass, smtpHost, smtpPort, smtpUser, smtpPass, imapSecure, smtpSecure } = req.body;
+
+    const { error: updateError } = await supabase.from("inboxes").update({
+      imap_host: imapHost,
+      imap_port: imapPort,
+      imap_user: imapUser,
+      imap_pass: encrypt(imapPass),
+      smtp_host: smtpHost,
+      smtp_port: smtpPort,
+      smtp_user: smtpUser,
+      smtp_pass: encrypt(smtpPass),
+      imap_secure: imapSecure,
+      smtp_secure: smtpSecure,
+    }).eq("id", inboxId);
+
+    if (updateError) {
+      res.status(500).json({ error: updateError.message });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("[InboxRoutes] PATCH /:inboxId/credentials error:", err);
+    res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
+
 inboxRouter.get("/:inboxId/folders", async (req, res) => {
   try {
     const userId = req.user!.sub;
@@ -274,7 +353,7 @@ inboxRouter.get("/:inboxId/folders", async (req, res) => {
       host: creds.imap_host,
       port: creds.imap_port,
       secure: creds.imap_secure !== false,
-      auth: { user: creds.imap_user, pass: creds.imap_pass },
+      auth: { user: creds.imap_user, pass: decrypt(creds.imap_pass) },
       logger: false,
     });
 
@@ -295,3 +374,294 @@ inboxRouter.get("/:inboxId/folders", async (req, res) => {
     res.status(500).json({ error: err.message || "Fehler beim Abrufen der IMAP-Ordner" });
   }
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/inboxes/:inboxId/members/invite – Invite a user by email
+// ---------------------------------------------------------------------------
+inboxRouter.post("/:inboxId/members/invite", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const { inboxId } = req.params;
+    const { email, role = "member" } = req.body;
+
+    if (!email?.trim()) {
+      res.status(400).json({ error: "E-Mail ist erforderlich" });
+      return;
+    }
+
+    const supabase = getSupabaseAdmin();
+
+    const { data: inbox } = await supabase
+      .from("inboxes")
+      .select("type, owner_id, team_id")
+      .eq("id", inboxId)
+      .single();
+
+    if (!inbox) {
+      res.status(404).json({ error: "Inbox not found" });
+      return;
+    }
+
+    // Check permissions
+    let isAdminOrOwner = false;
+    if (inbox.type === "private") {
+      isAdminOrOwner = inbox.owner_id === userId;
+    } else {
+      // For shared inboxes, check inbox_members first, then team_members
+      const { data: inboxMem } = await supabase
+        .from("inbox_members")
+        .select("role")
+        .eq("inbox_id", inboxId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (inboxMem && ["owner", "admin"].includes(inboxMem.role)) {
+        isAdminOrOwner = true;
+      } else {
+        const { data: teamMem } = await supabase
+          .from("team_members")
+          .select("role")
+          .eq("team_id", inbox.team_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (teamMem && ["owner", "admin"].includes(teamMem.role)) {
+          isAdminOrOwner = true;
+        }
+      }
+    }
+
+    if (!isAdminOrOwner) {
+      res.status(403).json({ error: "Nur Admins können Mitglieder einladen" });
+      return;
+    }
+
+    let { data: profile } = await supabase
+      .from("profiles")
+      .select("id, email, display_name")
+      .eq("email", email.trim().toLowerCase())
+      .maybeSingle();
+
+    if (!profile) {
+      // Invite user
+      const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email.trim().toLowerCase());
+      
+      if (inviteError) {
+        res.status(500).json({ error: `Einladung fehlgeschlagen: ${inviteError.message}` });
+        return;
+      }
+      
+      if (!inviteData?.user) {
+        res.status(500).json({ error: "Fehler beim Erstellen der Einladung" });
+        return;
+      }
+
+      profile = {
+        id: inviteData.user.id,
+        email: inviteData.user.email,
+        display_name: null,
+      };
+    }
+
+    // Check if already a member
+    const { data: existing } = await supabase
+      .from("inbox_members")
+      .select("role")
+      .eq("inbox_id", inboxId)
+      .eq("user_id", profile.id)
+      .maybeSingle();
+
+    if (existing) {
+      res.status(409).json({ error: "Dieser Benutzer ist bereits Mitglied" });
+      return;
+    }
+
+    // Add member
+    const { error } = await supabase
+      .from("inbox_members")
+      .insert({ inbox_id: inboxId, user_id: profile.id, role });
+
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
+    res.status(201).json({ 
+      message: `${profile.display_name || profile.email} wurde erfolgreich hinzugefügt`,
+      user: profile 
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/inboxes/:inboxId/members/:memberId – Change a member's role
+// ---------------------------------------------------------------------------
+inboxRouter.patch("/:inboxId/members/:memberId", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const { inboxId, memberId } = req.params;
+    const { role } = req.body;
+
+    if (!role || !["owner", "admin", "member"].includes(role)) {
+      res.status(400).json({ error: "Ungültige Rolle" });
+      return;
+    }
+
+    const supabase = getSupabaseAdmin();
+
+    const { data: inbox } = await supabase
+      .from("inboxes")
+      .select("type, owner_id, team_id")
+      .eq("id", inboxId)
+      .single();
+
+    if (!inbox) {
+      res.status(404).json({ error: "Inbox not found" });
+      return;
+    }
+
+    let myRole: string | null = null;
+    if (inbox.type === "private") {
+      if (inbox.owner_id === userId) myRole = "owner";
+    } else {
+      const { data: inboxMem } = await supabase
+        .from("inbox_members")
+        .select("role")
+        .eq("inbox_id", inboxId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      myRole = inboxMem?.role || null;
+      if (!myRole || myRole === "member") {
+        const { data: teamMem } = await supabase
+          .from("team_members")
+          .select("role")
+          .eq("team_id", inbox.team_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (teamMem && ["owner", "admin"].includes(teamMem.role)) {
+          myRole = teamMem.role;
+        }
+      }
+    }
+
+    if (!myRole || !["owner", "admin"].includes(myRole)) {
+      res.status(403).json({ error: "Keine Berechtigung zum Ändern von Rollen" });
+      return;
+    }
+
+    const { data: targetMembership } = await supabase
+      .from("inbox_members")
+      .select("role")
+      .eq("inbox_id", inboxId)
+      .eq("user_id", memberId)
+      .maybeSingle();
+
+    if (!targetMembership) {
+      res.status(404).json({ error: "Mitglied nicht gefunden" });
+      return;
+    }
+
+    if (myRole === "admin" && targetMembership.role === "owner") {
+      res.status(403).json({ error: "Ein Admin kann die Rolle eines Owners nicht ändern" });
+      return;
+    }
+
+    if (role === "owner" && myRole !== "owner") {
+      res.status(403).json({ error: "Nur ein Owner kann die Rolle 'owner' vergeben" });
+      return;
+    }
+
+    if (targetMembership.role === "owner" && role !== "owner" && myRole !== "owner") {
+      res.status(403).json({ error: "Nur ein Owner kann einen anderen Owner herabstufen" });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("inbox_members")
+      .update({ role })
+      .eq("inbox_id", inboxId)
+      .eq("user_id", memberId);
+
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
+    res.json({ message: "Rolle erfolgreich geändert" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/inboxes/:inboxId/members/:memberId – Remove a member
+// ---------------------------------------------------------------------------
+inboxRouter.delete("/:inboxId/members/:memberId", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const { inboxId, memberId } = req.params;
+    const supabase = getSupabaseAdmin();
+
+    const { data: inbox } = await supabase
+      .from("inboxes")
+      .select("type, owner_id, team_id")
+      .eq("id", inboxId)
+      .single();
+
+    if (!inbox) {
+      res.status(404).json({ error: "Inbox not found" });
+      return;
+    }
+
+    let myRole: string | null = null;
+    if (inbox.type === "private") {
+      if (inbox.owner_id === userId) myRole = "owner";
+    } else {
+      const { data: inboxMem } = await supabase
+        .from("inbox_members")
+        .select("role")
+        .eq("inbox_id", inboxId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      myRole = inboxMem?.role || null;
+      if (!myRole || myRole === "member") {
+        const { data: teamMem } = await supabase
+          .from("team_members")
+          .select("role")
+          .eq("team_id", inbox.team_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (teamMem && ["owner", "admin"].includes(teamMem.role)) {
+          myRole = teamMem.role;
+        }
+      }
+    }
+
+    const isSelf = userId === memberId;
+    const isAdminOrOwner = myRole && ["owner", "admin"].includes(myRole);
+
+    if (!isSelf && !isAdminOrOwner) {
+      res.status(403).json({ error: "Keine Berechtigung zum Entfernen von Mitgliedern" });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("inbox_members")
+      .delete()
+      .eq("inbox_id", inboxId)
+      .eq("user_id", memberId);
+
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
+    res.json({ message: "Mitglied erfolgreich entfernt" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+

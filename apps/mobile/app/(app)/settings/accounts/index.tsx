@@ -15,7 +15,7 @@ const generateUUID = () => {
 export default function AccountsSettingsScreen() {
   const { inboxes, isLoading, refetch } = useInboxes();
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'Konto' | 'Postfächer' | 'Zugangsdaten'>('Konto');
+  const [activeTab, setActiveTab] = useState<'Konto' | 'Postfächer' | 'Zugangsdaten' | 'Mitglieder'>('Konto');
   const [editingAlias, setEditingAlias] = useState(false);
   const [aliasTab, setAliasTab] = useState<'Alias' | 'Signatur'>('Alias');
 
@@ -79,6 +79,12 @@ export default function AccountsSettingsScreen() {
   const [isArchiving, setIsArchiving] = useState(false);
 
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  // Members modal
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<'admin' | 'member'>('member');
+  const [isSubmittingMember, setIsSubmittingMember] = useState(false);
 
   // Group inboxes
   const personalInboxes = inboxes.filter(i => i.type === 'private');
@@ -371,31 +377,40 @@ export default function AccountsSettingsScreen() {
     if (!account) return;
     setIsSavingCreds(true);
     try {
-      const { error } = await supabase.from('inboxes').update({
-        imap_host: imapHost,
-        imap_user: imapUser,
-        imap_pass: imapPass,
-        imap_port: parseInt(imapPort, 10) || 993,
-        imap_secure: imapSecure,
-        smtp_host: smtpHost,
-        smtp_user: smtpUser,
-        smtp_pass: smtpPass,
-        smtp_port: parseInt(smtpPort, 10) || 465,
-        smtp_secure: smtpSecure,
-      }).eq('id', account.id);
-      
-      if (error) throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Nicht eingeloggt');
+
+      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/inboxes/${account.id}/credentials`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          imapHost,
+          imapUser,
+          imapPass,
+          imapPort: parseInt(imapPort, 10) || 993,
+          imapSecure,
+          smtpHost,
+          smtpUser,
+          smtpPass,
+          smtpPort: parseInt(smtpPort, 10) || 465,
+          smtpSecure,
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Fehler beim Speichern');
 
       // Trigger IMAP reconnect on backend
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/inboxes/${account.id}/reconnect`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          }
-        });
-      }
+      await fetch(`${backendUrl}/api/inboxes/${account.id}/reconnect`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
 
       Alert.alert('Erfolg', 'Zugangsdaten wurden gespeichert!');
       refetch();
@@ -440,6 +455,74 @@ export default function AccountsSettingsScreen() {
     } catch (e: any) {
       Alert.alert('Fehler', e.message || 'Import fehlgeschlagen');
     }
+  };
+
+  const handleAddMember = async () => {
+    if (!account || !newMemberEmail.trim()) return;
+    setIsSubmittingMember(true);
+    try {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/inboxes/${account.id}/members/invite`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ email: newMemberEmail, role: newMemberRole })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Fehler beim Einladen');
+
+      Alert.alert('Erfolg', 'Mitglied eingeladen!');
+      setNewMemberEmail('');
+      setNewMemberRole('member');
+      setIsAddingMember(false);
+      refetch();
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    } finally {
+      setIsSubmittingMember(false);
+    }
+  };
+
+  const handleChangeMemberRole = async (memberId: string, role: string) => {
+    if (!account) return;
+    try {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/inboxes/${account.id}/members/${memberId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ role })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Fehler beim Ändern der Rolle');
+      refetch();
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!account) return;
+    Alert.alert('Entfernen', 'Soll dieses Mitglied wirklich entfernt werden?', [
+      { text: 'Abbrechen', style: 'cancel' },
+      { text: 'Entfernen', style: 'destructive', onPress: async () => {
+        try {
+          const response = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/inboxes/${account.id}/members/${memberId}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+            }
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Fehler beim Entfernen');
+          refetch();
+        } catch (e: any) {
+          Alert.alert('Fehler', e.message);
+        }
+      }}
+    ]);
   };
 
   const handleAddInbox = async () => {
@@ -590,6 +673,58 @@ export default function AccountsSettingsScreen() {
               <ActivityIndicator color={Colors.surface} />
             ) : (
               <Text style={styles.buttonPrimaryText}>Speichern</Text>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    </View>
+  );
+
+  const renderAddMemberModal = () => (
+    <View style={styles.modalOverlay}>
+      <View style={[styles.modalContainer, { width: 400, height: 350, flexDirection: 'column' }]}>
+        <View style={styles.modalSidebarHeader}>
+          <Text style={styles.modalSidebarTitle}>Mitglied einladen</Text>
+          <TouchableOpacity onPress={() => setIsAddingMember(false)}>
+            <Text style={styles.closeIcon}>✕</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView style={{ padding: Spacing.xl }}>
+          <Text style={styles.settingLabel}>E-Mail Adresse</Text>
+          <TextInput 
+            style={[styles.input, { marginBottom: Spacing.xl }]} 
+            placeholder="kollege@domain.de" 
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={newMemberEmail}
+            onChangeText={setNewMemberEmail}
+          />
+          
+          <Text style={styles.settingLabel}>Rolle</Text>
+          <View style={{ flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.xl }}>
+            <TouchableOpacity 
+              style={[styles.buttonSecondary, newMemberRole === 'member' && { borderColor: Colors.info, backgroundColor: Colors.info + '10' }]} 
+              onPress={() => setNewMemberRole('member')}
+            >
+              <Text style={[styles.buttonSecondaryText, newMemberRole === 'member' && { color: Colors.info }]}>Mitglied</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.buttonSecondary, newMemberRole === 'admin' && { borderColor: Colors.info, backgroundColor: Colors.info + '10' }]} 
+              onPress={() => setNewMemberRole('admin')}
+            >
+              <Text style={[styles.buttonSecondaryText, newMemberRole === 'admin' && { color: Colors.info }]}>Admin</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity 
+            style={[styles.buttonPrimary, { alignSelf: 'flex-start' }, isSubmittingMember && { opacity: 0.7 }]}
+            onPress={handleAddMember}
+            disabled={isSubmittingMember}
+          >
+            {isSubmittingMember ? (
+              <ActivityIndicator color={Colors.surface} />
+            ) : (
+              <Text style={styles.buttonPrimaryText}>Einladen</Text>
             )}
           </TouchableOpacity>
         </ScrollView>
@@ -1396,7 +1531,7 @@ export default function AccountsSettingsScreen() {
               <Text style={styles.mainHeaderSubtitle}>{account.type === 'private' ? 'IMAP-Konto' : 'Geteiltes Konto'}</Text>
               
               <View style={styles.tabsRow}>
-                {['Konto', 'Postfächer', 'Zugangsdaten'].map((tab) => (
+                {['Konto', 'Postfächer', 'Zugangsdaten', ...(isShared ? ['Mitglieder'] : [])].map((tab) => (
                   <TouchableOpacity 
                     key={tab} 
                     style={[styles.tab, activeTab === tab && styles.tabActive]}
@@ -1411,6 +1546,51 @@ export default function AccountsSettingsScreen() {
             {activeTab === 'Konto' && renderAccountTab()}
             {activeTab === 'Postfächer' && renderMailboxesTab()}
             {activeTab === 'Zugangsdaten' && renderCredentialsTab()}
+            {activeTab === 'Mitglieder' && (
+              <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+                <View style={styles.flexRowBetween}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Mitglieder</Text>
+                    <Text style={styles.settingSubLabel}>Wer Zugriff auf dieses Postfach hat</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setIsAddingMember(true)}>
+                    <Text style={styles.linkText}>⊕ Mitglied einladen</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.card}>
+                  <View style={styles.tableHeader}>
+                    <Text style={[styles.tableHeaderText, { flex: 2 }]}>Name / E-Mail</Text>
+                    <Text style={[styles.tableHeaderText, { flex: 1 }]}>Rolle</Text>
+                    <Text style={[styles.tableHeaderText, { width: 140 }]}></Text>
+                  </View>
+                  {account?.inbox_members?.map((mem: any) => {
+                    const prof = mem.profiles;
+                    const displayName = prof?.display_name || prof?.email;
+                    return (
+                      <View key={mem.user_id} style={styles.tableRow}>
+                        <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
+                          {prof?.avatar_url ? (
+                            <Image source={{ uri: prof.avatar_url }} style={{ width: 24, height: 24, borderRadius: 12, marginRight: Spacing.sm }} />
+                          ) : (
+                            <View style={[styles.avatarMock, { marginRight: Spacing.sm }]}><Text style={styles.avatarMockText}>{displayName?.substring(0,2).toUpperCase()}</Text></View>
+                          )}
+                          <Text style={styles.tableCellText}>{displayName}</Text>
+                        </View>
+                        <Text style={[styles.tableCellText, { flex: 1 }]}>{mem.role}</Text>
+                        <View style={{ width: 140, flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm }}>
+                          <TouchableOpacity onPress={() => handleChangeMemberRole(mem.user_id, mem.role === 'admin' ? 'member' : 'admin')}>
+                            <Text style={styles.linkText}>{mem.role === 'admin' ? 'Als Member' : 'Als Admin'}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => handleRemoveMember(mem.user_id)}>
+                            <Text style={styles.dangerText}>Entfernen</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            )}
           </>
         ) : (
           <View style={styles.centerContent}>
@@ -1423,6 +1603,7 @@ export default function AccountsSettingsScreen() {
       {isArchiveModalOpen && renderArchiveModal()}
       {folderSelectModalOpen && renderFolderSelectModal()}
       {isHistoryModalOpen && renderHistoryModal()}
+      {isAddingMember && renderAddMemberModal()}
       
       {/* Moved modals to end for proper z-index stacking */}
       {isAddingInbox && renderAddInboxModal()}

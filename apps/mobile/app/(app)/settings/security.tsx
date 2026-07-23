@@ -1,17 +1,48 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
 import { useAuthStore } from '../../../stores/authStore';
 
 export default function SecuritySettingsScreen() {
-  const { user } = useAuthStore();
+  const { user, updatePassword, resetPasswordForEmail } = useAuthStore();
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
 
   // Extract name for avatar
   const nameParts = (user?.user_metadata?.display_name || '').split(' ');
   const firstName = nameParts[0] || '';
   const lastName = nameParts.slice(1).join(' ') || '';
+
+  const handleUpdatePassword = async () => {
+    if (newPassword.length < 6) {
+      Alert.alert('Fehler', 'Das neue Passwort muss mindestens 6 Zeichen lang sein.');
+      return;
+    }
+    setIsUpdatingPassword(true);
+    const { error } = await updatePassword(newPassword);
+    setIsUpdatingPassword(false);
+    if (error) {
+      Alert.alert('Fehler', error.message);
+    } else {
+      Alert.alert('Erfolg', 'Passwort wurde aktualisiert.');
+      setOldPassword('');
+      setNewPassword('');
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!user?.email) return;
+    setIsSendingReset(true);
+    const { error } = await resetPasswordForEmail(user.email);
+    setIsSendingReset(false);
+    if (error) {
+      Alert.alert('Fehler', error.message);
+    } else {
+      Alert.alert('Erfolg', 'Anweisungen zum Zurücksetzen des Passworts wurden gesendet.');
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -62,8 +93,14 @@ export default function SecuritySettingsScreen() {
               <View style={styles.checkbox} />
               <Text style={styles.checkboxLabel}>Aus allen anderen Sitzungen abmelden</Text>
             </View>
-            <TouchableOpacity style={styles.buttonPrimary}>
-              <Text style={styles.buttonPrimaryText}>Passwort bestätigen</Text>
+            <TouchableOpacity 
+              style={[styles.buttonPrimary, isUpdatingPassword && styles.buttonDisabled]}
+              onPress={handleUpdatePassword}
+              disabled={isUpdatingPassword}
+            >
+              <Text style={styles.buttonPrimaryText}>
+                {isUpdatingPassword ? 'Wird aktualisiert...' : 'Passwort bestätigen'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -76,8 +113,14 @@ export default function SecuritySettingsScreen() {
             <Text style={styles.description}>
               Eine E-Mail mit einem Link zum Zurücksetzen deines Passworts wird an {user?.email} gesendet.
             </Text>
-            <TouchableOpacity style={styles.buttonSecondary}>
-              <Text style={styles.buttonSecondaryText}>Anweisungen senden</Text>
+            <TouchableOpacity 
+              style={[styles.buttonSecondary, isSendingReset && styles.buttonDisabled]}
+              onPress={handleResetPassword}
+              disabled={isSendingReset}
+            >
+              <Text style={styles.buttonSecondaryText}>
+                {isSendingReset ? 'Wird gesendet...' : 'Anweisungen senden'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -319,6 +362,9 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     alignSelf: 'flex-start',
     marginTop: Spacing.md,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
   },
   buttonPrimaryText: {
     fontFamily: FontFamily,

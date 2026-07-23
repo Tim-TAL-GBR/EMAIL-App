@@ -39,6 +39,15 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
   const { inboxes } = useInboxes();
   const { signatures } = useSignatures();
+  
+  // Use provided inboxId, or fallback to first available inbox if opened from Global Inbox
+  const activeInboxId = inboxId || (inboxes && inboxes.length > 0 ? inboxes[0].id : '');
+
+  const extractEmail = (str?: string) => {
+    if (!str) return '';
+    const match = str.match(/<([^>]+)>/);
+    return match ? match[1].trim() : str.trim();
+  };
 
   // Create quoting for reply/forward
   const originalBody = sourceEmail?.body_text || '';
@@ -47,9 +56,9 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
   const [to, setTo] = useState(
     mode === 'reply' 
-      ? (sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length 
+      ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length 
           ? sourceEmail.to_addresses[0] 
-          : sourceEmail?.from_address || '') 
+          : sourceEmail?.from_address)
       : ''
   );
   const [cc, setCc] = useState('');
@@ -129,21 +138,44 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     }
   }, [draft?.id]);
 
-  // Load signature
+  // Load signature and reset form on open
   useEffect(() => {
-    if (visible && !draftToResume && !draft) {
-      const activeInbox = inboxes.find(i => i.id === inboxId);
-      if (activeInbox?.signature_id) {
-        const sig = signatures.find(s => s.id === activeInbox.signature_id);
-        if (sig && sig.content_text) {
-          const sigText = `\n\n-- \n${sig.content_text}`;
-          if (!body.includes(sigText)) {
-            setBody(prev => sigText + prev);
+    if (visible) {
+      if (!draftToResume && !draft) {
+        // Reset state for new composition
+        const newTo = mode === 'reply' 
+          ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length 
+              ? sourceEmail.to_addresses[0] 
+              : sourceEmail?.from_address)
+          : '';
+        const newSubject = mode === 'reply' ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`) :
+                           mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : '';
+        const quotedBody = (sourceEmail?.body_text || '').split('\n').map(line => `> ${line}`).join('\n');
+        const newBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quotedBody}` : '';
+        
+        setTo(newTo);
+        setCc('');
+        setSubject(newSubject);
+        setBody(newBody);
+        setAttachments([]);
+      }
+
+      // Add signature if not present
+      if (!draftToResume && !draft && activeInboxId) {
+        const activeInbox = inboxes.find(i => i.id === activeInboxId);
+        if (activeInbox?.signature_id) {
+          const sig = signatures.find(s => s.id === activeInbox.signature_id);
+          if (sig && sig.content_text) {
+            const sigText = `\n\n-- \n${sig.content_text}`;
+            setBody(prev => {
+              if (!prev.includes(sigText)) return prev + sigText;
+              return prev;
+            });
           }
         }
       }
     }
-  }, [visible, inboxId, inboxes, signatures, draftToResume, draft]);
+  }, [visible, mode, sourceEmail, inboxId, inboxes, signatures, draftToResume, draft]);
 
   // Auto-save logic
   useEffect(() => {
@@ -179,7 +211,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
       const ccAddresses = cc.split(',').map(s => s.trim()).filter(Boolean);
 
       const payload = {
-        inboxId,
+        inboxId: activeInboxId,
         to: toAddresses,
         cc: ccAddresses,
         subject,

@@ -14,7 +14,7 @@ import { supabase } from '../lib/supabase';
 import { useEmailStore, type Email } from '../stores/emailStore';
 import { ContextType } from '../stores/navigationStore';
 
-export function useEmails(inboxIds: string[], labelId?: string, activeContextType?: string) {
+export function useEmails(inboxIds: string[], labelId?: string, activeContextType?: string, activeFilter?: string) {
   const store = useEmailStore();
   const inboxIdsStr = JSON.stringify(inboxIds);
 
@@ -24,7 +24,7 @@ export function useEmails(inboxIds: string[], labelId?: string, activeContextTyp
       return;
     }
 
-    store.fetchEmails(inboxIds, labelId, activeContextType);
+    store.fetchEmails(inboxIds, labelId, activeContextType, activeFilter);
 
     const channelName = `emails-inboxes-${inboxIds[0]}-${inboxIds.length}-${labelId || 'no-label'}`;
     const filterString = `inbox_id=in.(${inboxIds.join(',')})`;
@@ -64,19 +64,22 @@ export function useEmails(inboxIds: string[], labelId?: string, activeContextTyp
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inboxIdsStr, labelId]);
+  }, [inboxIdsStr, labelId, activeFilter]);
 
   return {
     emails: store.emails,
     threads: store.threads,
     activeEmailId: store.activeEmailId,
     isLoading: store.isLoading,
+    isLoadingMore: store.isLoadingMore,
+    hasMoreEmails: store.hasMoreEmails,
     error: store.error,
     fetchEmails: store.fetchEmails,
+    fetchMoreEmails: () => store.fetchMoreEmails(inboxIds, labelId, activeContextType, activeFilter),
     setActiveEmail: store.setActiveEmail,
     updateEmailStatus: store.updateEmailStatus,
     toggleStar: store.toggleStar,
     markAsRead: store.markAsRead,
-    refetch: (inboxIds && inboxIds.length > 0) ? () => store.fetchEmails(inboxIds, labelId) : () => Promise.resolve(),
+    refetch: (inboxIds && inboxIds.length > 0) ? () => store.fetchEmails(inboxIds, labelId, activeContextType, activeFilter) : () => Promise.resolve(),
   };
 }

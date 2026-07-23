@@ -151,6 +151,7 @@ mailRouter.post("/send", async (req, res) => {
     const { inboxId, to, cc, bcc, subject, bodyText, bodyHtml, inReplyTo, references, attachments } = req.body;
 
     if (!inboxId || !to || to.length === 0 || !subject || !bodyText) {
+      console.log("[MailRoutes] Missing fields in /send. Payload:", { inboxId, to, subject, hasBody: !!bodyText });
       res.status(400).json({ error: "Missing required fields" });
       return;
     }

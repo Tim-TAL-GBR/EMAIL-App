@@ -17,7 +17,7 @@ export function useDraftsList(inboxIds: string[]) {
     
     const { data, error } = await supabase
       .from('drafts')
-      .select('*')
+      .select('id, inbox_id, subject, to_addresses, in_reply_to, thread_id, created_at, updated_at')
       .in('inbox_id', inboxIds)
       .order('updated_at', { ascending: false });
 

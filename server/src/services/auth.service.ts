@@ -46,14 +46,24 @@ export function getSupabaseAdmin(): SupabaseClient {
 // Per-User Client
 // ---------------------------------------------------------------------------
 
+function getAnonKey(): string {
+  const key = process.env.SUPABASE_ANON_KEY;
+  if (!key) throw new Error("[auth-service] SUPABASE_ANON_KEY is not set");
+  return key;
+}
+
 /**
  * Returns a Supabase client scoped to a specific user's access token.
  *
  * All queries through this client respect RLS policies bound to the user.
+ * IMPORTANT: Uses the anon key (not service role) so RLS is enforced at the
+ * Supabase API gateway level. The user's access token is set as the
+ * Authorization header.
+ *
  * A new client instance is created per call – callers should cache if needed.
  */
 export function getSupabaseForUser(accessToken: string): SupabaseClient {
-  return createClient(getSupabaseUrl(), getServiceRoleKey(), {
+  return createClient(getSupabaseUrl(), getAnonKey(), {
     global: {
       headers: {
         Authorization: `Bearer ${accessToken}`,

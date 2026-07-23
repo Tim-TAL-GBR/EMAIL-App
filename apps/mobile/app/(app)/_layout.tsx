@@ -3,6 +3,8 @@ import { View, useWindowDimensions, StyleSheet, Platform } from 'react-native';
 import { Stack, Slot, usePathname } from 'expo-router';
 import { Colors } from '../../lib/constants';
 import { DesktopLayout } from '../../components/layout/DesktopLayout';
+import { Onboarding } from '../../components/layout/Onboarding';
+import { useInboxes } from '../../hooks/useInboxes';
 
 const isMac = Platform.OS === 'macos';
 const BREAKPOINT_TABLET = 768;
@@ -11,11 +13,16 @@ const BREAKPOINT_DESKTOP = 1024;
 export default function AppLayout() {
   const { width } = useWindowDimensions();
   const pathname = usePathname();
+  const { inboxes, isLoading } = useInboxes();
 
   const isDesktop = isMac || width >= BREAKPOINT_DESKTOP;
   
   // Only use the 3-pane layout for the main inbox/email views
   const isSettings = pathname.startsWith('/settings');
+
+  if (inboxes.length === 0 && !isLoading && !isSettings) {
+    return <Onboarding />;
+  }
 
   if (isDesktop && !isSettings) {
     return (

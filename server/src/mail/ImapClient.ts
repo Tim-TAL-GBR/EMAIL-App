@@ -20,36 +20,63 @@ export class ImapClient {
   private config: ImapConfig;
   private isConnected = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  
+  private folderMap: {
+    inbox: string;
+    sent: string | null;
+    archive: string | null;
+    trash: string | null;
+  } = { inbox: "INBOX", sent: null, archive: null, trash: null };
 
-  constructor(config: ImapConfig) {
-    this.config = config;
-    this.client = new ImapFlow({
-      host: config.host,
-      port: config.port,
-      secure: config.secure !== false,
+  private createImapFlow() {
+    return new ImapFlow({
+      host: this.config.host,
+      port: this.config.port,
+      secure: this.config.secure !== false,
       auth: {
-        user: config.user,
-        pass: config.pass,
+        user: this.config.user,
+        pass: this.config.pass,
       },
       logger: false,
     });
   }
 
+  constructor(config: ImapConfig) {
+    this.config = config;
+    this.client = this.createImapFlow();
+  }
+
   public async connect(): Promise<void> {
     if (this.isConnected) return;
     try {
+      if (this.client && (this.client as any).usable === false) {
+        this.client = this.createImapFlow();
+      }
       await this.client.connect();
       this.isConnected = true;
       console.log(`[ImapClient] Connected to ${this.config.user}`);
       
-      // Select INBOX
+      // Discover folders
+      const folders = await this.client.list();
+      this.folderMap = {
+        inbox: "INBOX",
+        sent: folders.find(f => f.specialUse === '\\Sent' || f.name.toLowerCase() === 'sent' || f.name.toLowerCase() === 'gesendet' || f.name.toLowerCase() === 'sent items')?.path || null,
+        archive: folders.find(f => f.specialUse === '\\Archive' || f.name.toLowerCase().includes('archive') || f.name.toLowerCase().includes('archiv') || f.name.toLowerCase() === 'all mail')?.path || null,
+        trash: folders.find(f => f.specialUse === '\\Trash' || f.name.toLowerCase().includes('trash') || f.name.toLowerCase().includes('gelöscht') || f.name.toLowerCase().includes('papierkorb') || f.name.toLowerCase() === 'deleted items')?.path || null,
+      };
+      console.log(`[ImapClient] Folder mapping for ${this.config.user}:`, this.folderMap);
+
+      // Initial fetch for all folders
+      await this.syncAllFolders();
+
+      // Select INBOX and IDLE
       const mailbox = await this.client.mailboxOpen("INBOX");
       console.log(`[ImapClient] Mailbox INBOX opened for ${this.config.user}. Total messages: ${mailbox.exists}`);
 
       // Listen for new messages using IDLE
       this.client.on("exists", async (data) => {
         console.log(`[ImapClient] New message exists event for ${this.config.user}:`, data);
-        await this.fetchNewMessages();
+        await this.fetchFolder("INBOX");
       });
 
       this.client.on("error", (err) => {
@@ -61,9 +88,6 @@ export class ImapClient {
         console.log(`[ImapClient] Connection closed for ${this.config.user}`);
         this.handleDisconnect();
       });
-
-      // Initial fetch to get anything we missed
-      await this.fetchNewMessages();
 
     } catch (error) {
       console.error(`[ImapClient] Connection failed for ${this.config.user}:`, error);
@@ -92,31 +116,66 @@ export class ImapClient {
     }
   }
 
-  private async fetchNewMessages(): Promise<void> {
-    if (!this.isConnected || !this.client.mailbox) return;
+  private async syncAllFolders(): Promise<void> {
+    if (this.folderMap.archive) await this.fetchFolder(this.folderMap.archive);
+    if (this.folderMap.trash) await this.fetchFolder(this.folderMap.trash);
+    if (this.folderMap.sent) await this.fetchFolder(this.folderMap.sent);
+    await this.fetchFolder(this.folderMap.inbox);
+  }
+
+  private async fetchFolder(mailboxPath: string): Promise<void> {
+    if (!this.isConnected) return;
 
     try {
+      console.log(`[ImapClient] Starting fetch for folder: ${mailboxPath}...`);
+      await this.client.mailboxOpen(mailboxPath);
+      if (!this.client.mailbox) return;
       console.log(`[ImapClient] Starting fetchNewMessages...`);
       // 1. Fetch all unseen messages
       const unseenSeq = await this.client.search({ seen: false });
       console.log(`[ImapClient] unseenSeq:`, unseenSeq);
       
-      // 2. Fetch history: either since the specified date, or the last 20 messages
+      // 2. Fetch history: use highest UID if available, else sync_since, else last 20
       let recentSeq: number[] = [];
-      if (this.config.sync_since) {
-        console.log(`[ImapClient] Searching since ${this.config.sync_since}`);
-        const sinceDate = new Date(this.config.sync_since);
-        recentSeq = await this.client.search({ since: sinceDate }) || [];
-        console.log(`[ImapClient] recentSeq since date:`, recentSeq?.length);
-      } else {
-        const total = this.client.mailbox.exists;
-        console.log(`[ImapClient] Total messages in mailbox: ${total}`);
-        if (total > 0) {
-          const start = Math.max(1, total - 19);
-          console.log(`[ImapClient] Searching sequence ${start}:${total}`);
-          recentSeq = await this.client.search({ seq: `${start}:${total}` }) || [];
-          console.log(`[ImapClient] recentSeq range:`, recentSeq?.length);
+      try {
+        const supabase = getSupabaseAdmin();
+        
+        let dbMailboxName = "INBOX";
+        if (mailboxPath === this.folderMap.archive) dbMailboxName = "Archive";
+        else if (mailboxPath === this.folderMap.trash) dbMailboxName = "Trash";
+        else if (mailboxPath === this.folderMap.sent) dbMailboxName = "Sent";
+
+        const { data: lastEmail } = await supabase.from('emails')
+          .select('imap_uid')
+          .eq('inbox_id', this.config.inboxId)
+          .eq('mailbox_name', dbMailboxName)
+          .order('imap_uid', { ascending: false })
+          .limit(1)
+          .single();
+          
+        const highestUid = lastEmail?.imap_uid || 0;
+        
+        if (highestUid > 0) {
+          console.log(`[ImapClient] Searching UID > ${highestUid}`);
+          recentSeq = await this.client.search({ uid: `${highestUid + 1}:*` }) || [];
+          console.log(`[ImapClient] recentSeq new UIDs:`, recentSeq?.length);
+        } else if (this.config.sync_since) {
+          console.log(`[ImapClient] Searching since ${this.config.sync_since}`);
+          const sinceDate = new Date(this.config.sync_since);
+          recentSeq = await this.client.search({ since: sinceDate }) || [];
+          console.log(`[ImapClient] recentSeq since date:`, recentSeq?.length);
+        } else {
+          const total = this.client.mailbox.exists;
+          console.log(`[ImapClient] Total messages in mailbox: ${total}`);
+          if (total > 0) {
+            const start = Math.max(1, total - 19);
+            console.log(`[ImapClient] Searching sequence ${start}:${total}`);
+            recentSeq = await this.client.search({ seq: `${start}:${total}` }) || [];
+            console.log(`[ImapClient] recentSeq range:`, recentSeq?.length);
+          }
         }
+      } catch (e) {
+        console.error('[ImapClient] Error querying max UID:', e);
       }
 
       // Combine and deduplicate, sort descending (newest first)
@@ -134,8 +193,9 @@ export class ImapClient {
         const message = await this.client.fetchOne(seq, { source: true, uid: true });
         
         if (message && message.source) {
+          console.log(`[ImapClient] Fetched msg ${seq} uid ${message.uid}`);
           const isUnseen = (unseenSeq || []).includes(seq);
-          await this.processMessage(message.source, message.uid, !isUnseen);
+          await this.processMessage(message.source, message.uid, !isUnseen, mailboxPath);
           
           if (isUnseen) {
             // Mark as seen
@@ -148,9 +208,9 @@ export class ImapClient {
     }
   }
 
-  private async processMessage(source: Buffer, uid: number, isSeenOnServer: boolean): Promise<void> {
-    const supabase = getSupabaseAdmin();
+  private async processMessage(source: Buffer, uid: number, isSeenOnServer: boolean, mailboxPath: string): Promise<void> {
     try {
+      const supabase = getSupabaseAdmin();
       const parsed: ParsedMail = await simpleParser(source);
       
       const messageId = parsed.messageId || `uid-${uid}-${Date.now()}`;
@@ -232,7 +292,8 @@ export class ImapClient {
         inReplyTo: inReplyTo || null,
         threadId: null, // Worker will calculate if null
         isRead: isSeenOnServer,
-        attachments: processedAttachments
+        attachments: processedAttachments,
+        mailboxName: mailboxPath
       });
 
       console.log(`[ImapClient] Queued email for processing: ${subject}`);

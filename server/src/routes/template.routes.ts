@@ -11,11 +11,20 @@ templateRouter.get("/", async (req, res) => {
     const userId = req.user!.sub;
     const supabase = getSupabaseAdmin();
 
-    const { data: templates, error } = await supabase
-      .from("templates")
-      .select("*")
-      .or(`owner_id.eq.${userId},scope.eq.team`)
-      .order("name");
+    const { data: memberships } = await supabase
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", userId);
+    const teamIds = (memberships || []).map(m => m.team_id);
+
+    let query = supabase.from("templates").select("*");
+    if (teamIds.length > 0) {
+      query = query.or(`owner_id.eq.${userId},and(scope.eq.team,team_id.in.(${teamIds.join(',')}))`);
+    } else {
+      query = query.eq("owner_id", userId);
+    }
+
+    const { data: templates, error } = await query.order("name");
 
     if (error) {
       res.status(500).json({ error: error.message });
@@ -80,7 +89,7 @@ templateRouter.put("/:templateId", async (req, res) => {
 
     const { data: existing } = await supabase
       .from("templates")
-      .select("owner_id")
+      .select("owner_id, scope, team_id")
       .eq("id", templateId)
       .single();
 
@@ -89,9 +98,23 @@ templateRouter.put("/:templateId", async (req, res) => {
       return;
     }
 
-    if (existing.owner_id && existing.owner_id !== userId) {
-      res.status(403).json({ error: "Not authorized to edit this template" });
-      return;
+    if (existing.scope === "private") {
+      if (existing.owner_id !== userId) {
+        res.status(403).json({ error: "Not authorized to edit this template" });
+        return;
+      }
+    } else if (existing.scope === "team") {
+      const { data: membership } = await supabase
+        .from("team_members")
+        .select("role")
+        .eq("team_id", existing.team_id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      
+      if (!membership || !["owner", "admin"].includes(membership.role)) {
+        res.status(403).json({ error: "Not authorized to edit this template" });
+        return;
+      }
     }
 
     const updates: Record<string, any> = {};
@@ -127,7 +150,7 @@ templateRouter.delete("/:templateId", async (req, res) => {
 
     const { data: existing } = await supabase
       .from("templates")
-      .select("owner_id")
+      .select("owner_id, scope, team_id")
       .eq("id", templateId)
       .single();
 
@@ -136,9 +159,23 @@ templateRouter.delete("/:templateId", async (req, res) => {
       return;
     }
 
-    if (existing.owner_id && existing.owner_id !== userId) {
-      res.status(403).json({ error: "Not authorized to delete this template" });
-      return;
+    if (existing.scope === "private") {
+      if (existing.owner_id !== userId) {
+        res.status(403).json({ error: "Not authorized to delete this template" });
+        return;
+      }
+    } else if (existing.scope === "team") {
+      const { data: membership } = await supabase
+        .from("team_members")
+        .select("role")
+        .eq("team_id", existing.team_id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      
+      if (!membership || !["owner", "admin"].includes(membership.role)) {
+        res.status(403).json({ error: "Not authorized to delete this template" });
+        return;
+      }
     }
 
     const { error } = await supabase

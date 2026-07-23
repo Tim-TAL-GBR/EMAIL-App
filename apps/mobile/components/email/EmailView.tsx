@@ -117,7 +117,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
-      const response = await fetch(`http://localhost:3001/api/emails/${selectedThread.latestEmail.id}/assign`, {
+      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${baseUrl}/api/emails/${selectedThread.latestEmail.id}/assign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -141,7 +142,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
-      const response = await fetch(`http://localhost:3001/api/emails/${selectedThread.latestEmail.id}/unassign`, {
+      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${baseUrl}/api/emails/${selectedThread.latestEmail.id}/unassign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -252,10 +254,10 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
                   </TouchableOpacity>
                 </View>
                 
-                <TouchableOpacity style={styles.iconButton} onPress={() => archiveEmail(selectedThread.id)}>
+                <TouchableOpacity style={styles.iconButton} onPress={() => archiveEmail(selectedThread.latestEmail.id)}>
                   <Feather name="archive" size={16} color={Colors.textSecondary} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.iconButton} onPress={() => deleteEmail(selectedThread.id)}>
+                <TouchableOpacity style={styles.iconButton} onPress={() => deleteEmail(selectedThread.latestEmail.id)}>
                   <Feather name="trash-2" size={16} color={Colors.textSecondary} />
                 </TouchableOpacity>
                 
@@ -317,7 +319,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             setRuleInitialCondition({ field: 'from', operator: 'equals', value: selectedThread.latestEmail.from_address });
             setTimeout(() => setRuleComposerVisible(true), 300);
           } },
-          { id: 'trash', label: 'Löschen', icon: 'trash-2', destructive: true, onPress: () => deleteEmail(selectedThread.id) },
+          { id: 'trash', label: 'Löschen', icon: 'trash-2', destructive: true, onPress: () => deleteEmail(selectedThread.latestEmail.id) },
         ]}
       />
 

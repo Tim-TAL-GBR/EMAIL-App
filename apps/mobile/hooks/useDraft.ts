@@ -62,13 +62,18 @@ export function useDraft(inboxId: string, threadId?: string | null, options?: Us
 
       // Subscribe to realtime changes for this draft
       const filterStr = `inbox_id=eq.${inboxId}`; 
+      const channelName = `draft-${inboxId}-${draftId || threadId || 'new'}`;
 
-      const subscription = supabase.channel(`draft-${inboxId}-${draftId || threadId || 'new'}`)
+      // Remove stale channel first (React Strict Mode double-invoke guard).
+      const stale = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
+      if (stale) supabase.removeChannel(stale);
+
+      const channel = supabase.channel(channelName)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'drafts', filter: filterStr }, loadDraft)
         .subscribe();
 
       return () => {
-        subscription.unsubscribe();
+        supabase.removeChannel(channel);
       };
     }
   }, [inboxId, loadDraft, fetchExisting, threadId, draftId]);

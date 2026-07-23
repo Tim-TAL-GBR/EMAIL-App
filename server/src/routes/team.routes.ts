@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
+import { z } from "zod";
+import { validateBody } from "../middleware/validate.middleware.js";
 
 export const teamRouter: Router = Router();
 
@@ -45,7 +47,7 @@ teamRouter.get("/", async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/teams – Create a new team, add creator as owner
 // ---------------------------------------------------------------------------
-teamRouter.post("/", async (req, res) => {
+teamRouter.post("/", validateBody(z.object({ name: z.string().min(1) })), async (req, res) => {
   try {
     const userId = req.user!.sub;
     const { name } = req.body;
@@ -139,7 +141,7 @@ teamRouter.get("/:id/members", async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/teams/:id/members/invite – Invite a user by email
 // ---------------------------------------------------------------------------
-teamRouter.post("/:id/members/invite", async (req, res) => {
+teamRouter.post("/:id/members/invite", validateBody(z.object({ email: z.string().email(), role: z.enum(['admin', 'member', 'owner']).optional() })), async (req, res) => {
   try {
     const userId = req.user!.sub;
     const teamId = req.params.id;
@@ -333,7 +335,7 @@ teamRouter.patch("/:id/members/:memberId", async (req, res) => {
 
     const supabase = getSupabaseAdmin();
 
-    // Only owner can change roles
+    // Only owner/admin can change roles
     const { data: myMembership } = await supabase
       .from("team_members")
       .select("role")
@@ -343,6 +345,33 @@ teamRouter.patch("/:id/members/:memberId", async (req, res) => {
 
     if (!myMembership || !["owner", "admin"].includes(myMembership.role)) {
       res.status(403).json({ error: "Keine Berechtigung zum Ändern von Rollen" });
+      return;
+    }
+
+    const { data: targetMembership } = await supabase
+      .from("team_members")
+      .select("role")
+      .eq("team_id", teamId)
+      .eq("user_id", memberId)
+      .maybeSingle();
+
+    if (!targetMembership) {
+      res.status(404).json({ error: "Mitglied nicht gefunden" });
+      return;
+    }
+
+    if (myMembership.role === "admin" && targetMembership.role === "owner") {
+      res.status(403).json({ error: "Ein Admin kann die Rolle eines Owners nicht ändern" });
+      return;
+    }
+
+    if (role === "owner" && myMembership.role !== "owner") {
+      res.status(403).json({ error: "Nur ein Owner kann die Rolle 'owner' vergeben" });
+      return;
+    }
+
+    if (targetMembership.role === "owner" && role !== "owner" && myMembership.role !== "owner") {
+      res.status(403).json({ error: "Nur ein Owner kann einen anderen Owner herabstufen" });
       return;
     }
 

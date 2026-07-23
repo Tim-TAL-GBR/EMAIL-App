@@ -29,6 +29,9 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   
   const [openEmailCount, setOpenEmailCount] = useState(0);
   const [openTaskCount, setOpenTaskCount] = useState(0);
+  
+  // Track which private inbox is expanded
+  const [expandedPrivateInbox, setExpandedPrivateInbox] = useState<string | null>(null);
 
   const privateInboxes = inboxes.filter(i => i.type === 'private');
 
@@ -143,16 +146,35 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
           </TouchableOpacity>
           <View style={styles.indentContainer}>
             {privateInboxes.map(inbox => (
-              <TouchableOpacity 
-                key={inbox.id}
-                style={[styles.accountItem, activeContextType === 'private_inbox' && activeContextId === inbox.id && styles.filterItemActive]}
-                onPress={() => handlePress('private_inbox', inbox.id, 'needs_attention')}
-              >
-                <Feather name="hard-drive" size={14} color={Colors.textTertiary} style={styles.accountIcon} />
-                <Text style={[styles.accountText, activeContextType === 'private_inbox' && activeContextId === inbox.id && styles.mainNavTextActive]} numberOfLines={1}>
-                  {inbox.email_address}
-                </Text>
-              </TouchableOpacity>
+              <View key={inbox.id}>
+                <TouchableOpacity 
+                  style={[styles.accountItem, activeContextType === 'private_inbox' && activeContextId === inbox.id && !activeFilter && styles.filterItemActive]}
+                  onPress={() => {
+                    handlePress('private_inbox', inbox.id, 'needs_attention');
+                    setExpandedPrivateInbox(expandedPrivateInbox === inbox.id ? null : inbox.id);
+                  }}
+                >
+                  <Feather 
+                    name={expandedPrivateInbox === inbox.id ? "chevron-down" : "chevron-right"} 
+                    size={14} 
+                    color={Colors.textTertiary} 
+                    style={{ marginRight: Spacing.xs }}
+                  />
+                  <Feather name="hard-drive" size={14} color={Colors.textTertiary} style={styles.accountIcon} />
+                  <Text style={[styles.accountText, activeContextType === 'private_inbox' && activeContextId === inbox.id && styles.mainNavTextActive]} numberOfLines={1}>
+                    {inbox.email_address}
+                  </Text>
+                </TouchableOpacity>
+                {expandedPrivateInbox === inbox.id && (
+                  <View style={styles.filtersContainer}>
+                    {renderFilterItem('private_inbox', inbox.id, 'needs_attention', 'Eingang')}
+                    {renderFilterItem('private_inbox', inbox.id, 'drafts', 'Entwürfe')}
+                    {renderFilterItem('private_inbox', inbox.id, 'sent', 'Gesendet')}
+                    {renderFilterItem('private_inbox', inbox.id, 'archived', 'Archiviert')}
+                    {renderFilterItem('private_inbox', inbox.id, 'trash', 'Papierkorb')}
+                  </View>
+                )}
+              </View>
             ))}
           </View>
         </View>

@@ -20,6 +20,8 @@ export const emailQueue = new Queue("email-processing", { connection });
 export interface ProcessEmailJob {
   inboxId: string;
   teamId: string;
+  mailboxName?: string;
+
   imapUid: number;
   messageId: string;
   subject: string;
@@ -75,6 +77,26 @@ export function startEmailWorker() {
       }
     }
 
+    let mappedStatus = "open";
+    let mappedDirection = "inbound";
+    let isArchived = false;
+    let isDeleted = false;
+    let mailboxName = data.mailboxName || "INBOX";
+
+    // Determine status, direction, and flags based on the folder
+    const mailboxLower = mailboxName.toLowerCase();
+    
+    if (mailboxLower.includes("sent") || mailboxLower.includes("gesendet") || mailboxLower.includes("outbox")) {
+      mappedDirection = "outbound";
+      mappedStatus = "done";
+    } else if (mailboxLower.includes("archive") || mailboxLower.includes("archiv") || mailboxLower.includes("all mail")) {
+      mappedStatus = "done";
+      isArchived = true;
+    } else if (mailboxLower.includes("trash") || mailboxLower.includes("gelöscht") || mailboxLower.includes("deleted")) {
+      mappedStatus = "done";
+      isDeleted = true;
+    }
+
     // 2. Insert into Supabase
     const { data: insertedEmail, error } = await supabase
       .from("emails")
@@ -89,12 +111,16 @@ export function startEmailWorker() {
         cc_addresses: data.ccAddresses,
         bcc_addresses: data.bccAddresses,
         received_at: data.date,
+        last_activity_at: data.date,
         body_text: data.bodyText,
         body_html: data.bodyHtml,
-        status: "open",
+        status: mappedStatus,
         is_read: data.isRead,
-        direction: "inbound",
+        direction: mappedDirection,
         imap_uid: data.imapUid,
+        is_archived: isArchived,
+        is_deleted: isDeleted,
+        mailbox_name: mailboxName,
       })
       .select("id")
       .single();
@@ -124,8 +150,8 @@ export function startEmailWorker() {
       }
     }
 
-    // 4. Send push notification if it's a new open email (not archived)
-    if (!data.isRead) {
+    // 4. Send push notification if it's a new open email in the primary INBOX (not archived/deleted)
+    if (!data.isRead && mailboxName === "INBOX" && !isArchived && !isDeleted && mappedDirection === "inbound") {
       try {
         await notifyTeamMembers(data.inboxId, data.subject, data.fromName);
       } catch (pushErr) {

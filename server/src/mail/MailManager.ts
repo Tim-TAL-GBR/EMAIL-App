@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { ImapClient } from "./ImapClient.js";
+import { decrypt } from "../utils/encryption.js";
 
 export class MailManager {
   private clients: Map<string, ImapClient> = new Map();
@@ -35,7 +36,7 @@ export class MailManager {
           host: inbox.imap_host,
           port: inbox.imap_port || 993,
           user: inbox.imap_user,
-          pass: inbox.imap_pass,
+          pass: decrypt(inbox.imap_pass),
           sync_since: inbox.sync_since,
           secure: inbox.imap_secure !== false,
         });
@@ -87,7 +88,7 @@ export class MailManager {
       host: inbox.imap_host,
       port: inbox.imap_port || 993,
       user: inbox.imap_user,
-      pass: inbox.imap_pass,
+      pass: decrypt(inbox.imap_pass),
       sync_since: inbox.sync_since,
       secure: inbox.imap_secure !== false,
     });
