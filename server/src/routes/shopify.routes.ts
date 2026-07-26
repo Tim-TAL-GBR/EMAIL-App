@@ -1,24 +1,95 @@
 import { Router } from "express";
-import { shopify } from "../shopify.js";
-import { supabaseService } from "../lib/supabase.js";
-import { requireAuth } from "../middleware/auth.js";
+import { getSupabaseAdmin } from "../services/auth.service.js";
+import { getShopifyForTeam, invalidateShopifyForTeam } from "../services/shopify.service.js";
+import { requireAuth } from "../middleware/expressAuth.middleware.js";
 
 export const shopifyRouter = Router();
 
+// ---------------------------------------------------------------------------
+// App Configuration – save / retrieve per-team API credentials
+// ---------------------------------------------------------------------------
+
+shopifyRouter.get("/app-config", requireAuth, async (req, res) => {
+  const teamId = req.query.team_id as string;
+  if (!teamId) return res.status(400).json({ error: "Missing team_id" });
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("shopify_apps")
+    .select("id, team_id, api_key, app_host_name, created_at")
+    .eq("team_id", teamId)
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ config: data });
+});
+
+shopifyRouter.post("/app-config", requireAuth, async (req, res) => {
+  const { teamId, apiKey, apiSecret, appHostName } = req.body;
+  if (!teamId || !apiKey || !apiSecret) {
+    return res.status(400).json({ error: "Missing teamId, apiKey, or apiSecret" });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("shopify_apps")
+    .upsert({
+      team_id: teamId,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      app_host_name: appHostName || null,
+    }, { onConflict: "team_id" })
+    .select("id, team_id, api_key, app_host_name")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  invalidateShopifyForTeam(teamId);
+  res.json({ config: data });
+});
+
+// ---------------------------------------------------------------------------
+// Connection Status – list connected shops for a team
+// ---------------------------------------------------------------------------
+
+shopifyRouter.get("/status", requireAuth, async (req, res) => {
+  const teamId = req.query.team_id as string;
+  if (!teamId) return res.status(400).json({ error: "Missing team_id" });
+
+  const supabase = getSupabaseAdmin();
+
+  const [{ data: appConfig }, { data: shops }] = await Promise.all([
+    supabase.from("shopify_apps").select("api_key, app_host_name").eq("team_id", teamId).maybeSingle(),
+    supabase.from("shopify_connections").select("shop_domain, created_at").eq("team_id", teamId).order("created_at", { ascending: false }),
+  ]);
+
+  res.json({
+    configured: !!appConfig,
+    appHostName: appConfig?.app_host_name || null,
+    shops: shops || [],
+  });
+});
+
+// ---------------------------------------------------------------------------
 // OAuth: Begin
+// ---------------------------------------------------------------------------
+
 shopifyRouter.get("/auth", requireAuth, async (req, res) => {
   const shop = req.query.shop as string;
   const teamId = req.query.team_id as string;
-  
+
   if (!shop || !teamId) {
-    return res.status(400).send("Missing shop or team_id");
+    return res.status(400).json({ error: "Missing shop or team_id" });
   }
 
-  // Store teamId in a secure cookie to use it during the callback
-  res.cookie("shopify_team_id", teamId, { 
-    signed: false, 
-    httpOnly: true, 
-    maxAge: 1000 * 60 * 15 // 15 minutes
+  const shopify = await getShopifyForTeam(teamId);
+  if (!shopify) {
+    return res.status(400).json({ error: "Shopify app not configured for this team. Save API credentials first." });
+  }
+
+  res.cookie("shopify_team_id", teamId, {
+    signed: false,
+    httpOnly: true,
+    maxAge: 1000 * 60 * 15,
   });
 
   try {
@@ -31,12 +102,25 @@ shopifyRouter.get("/auth", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Shopify OAuth begin error", error);
-    res.status(500).send("Error beginning OAuth flow");
+    res.status(500).json({ error: "Error beginning OAuth flow" });
   }
 });
 
+// ---------------------------------------------------------------------------
 // OAuth: Callback
+// ---------------------------------------------------------------------------
+
 shopifyRouter.get("/auth/callback", async (req, res) => {
+  const teamId = req.cookies?.shopify_team_id;
+  if (!teamId) {
+    return res.status(400).send("Session expired or missing team_id");
+  }
+
+  const shopify = await getShopifyForTeam(teamId);
+  if (!shopify) {
+    return res.status(400).send("Shopify app not configured for this team");
+  }
+
   try {
     const callbackResponse = await shopify.auth.callback({
       rawRequest: req,
@@ -44,26 +128,19 @@ shopifyRouter.get("/auth/callback", async (req, res) => {
     });
 
     const session = callbackResponse.session;
-    const teamId = req.cookies?.shopify_team_id;
-
-    if (!teamId) {
-      return res.status(400).send("Session expired or missing team_id");
-    }
 
     if (session.accessToken) {
-      // Upsert into shopify_connections
-      await supabaseService.from("shopify_connections").upsert({
+      const supabase = getSupabaseAdmin();
+      await supabase.from("shopify_connections").upsert({
         team_id: teamId,
         shop_domain: session.shop,
         access_token: session.accessToken,
-        scopes: session.scope
-      }, { onConflict: "team_id" });
+        scopes: session.scope,
+      }, { onConflict: "team_id,shop_domain" });
     }
 
-    // Clear cookie
     res.clearCookie("shopify_team_id");
-    
-    // Redirect back to frontend settings
+
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:8081";
     res.redirect(`${frontendUrl}/settings/integrations?shopify_success=true`);
   } catch (error) {
@@ -72,7 +149,31 @@ shopifyRouter.get("/auth/callback", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Disconnect – remove a connected shop
+// ---------------------------------------------------------------------------
+
+shopifyRouter.delete("/disconnect", requireAuth, async (req, res) => {
+  const { teamId, shopDomain } = req.body;
+  if (!teamId || !shopDomain) {
+    return res.status(400).json({ error: "Missing teamId or shopDomain" });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("shopify_connections")
+    .delete()
+    .eq("team_id", teamId)
+    .eq("shop_domain", shopDomain);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+// ---------------------------------------------------------------------------
 // Fetch Customer & Orders
+// ---------------------------------------------------------------------------
+
 shopifyRouter.get("/customer", requireAuth, async (req, res) => {
   const email = req.query.email as string;
   const teamId = req.query.team_id as string;
@@ -82,12 +183,28 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
   }
 
   try {
-    // 1. Get Shopify connection for team
-    const { data: connection } = await supabaseService
+    const shopify = await getShopifyForTeam(teamId);
+    if (!shopify) {
+      return res.status(404).json({ error: "No Shopify app configured for this team" });
+    }
+
+    const supabase = getSupabaseAdmin();
+    const { data: connection } = await supabase
       .from("shopify_connections")
       .select("*")
       .eq("team_id", teamId)
-      .single();
+      .eq("shop_domain", req.query.shop as string)
+      .maybeSingle()
+      .then(async (result) => {
+        if (result.data) return result;
+        const fallback = await supabase
+          .from("shopify_connections")
+          .select("*")
+          .eq("team_id", teamId)
+          .limit(1)
+          .maybeSingle();
+        return fallback;
+      });
 
     if (!connection) {
       return res.status(404).json({ error: "No Shopify connection found for this team" });
@@ -97,11 +214,10 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
       session: {
         shop: connection.shop_domain,
         accessToken: connection.access_token,
-        isOnline: false
-      } as any
+        isOnline: false,
+      } as any,
     });
 
-    // 2. Query Shopify GraphQL for customer by email
     const query = `
       query getCustomer($email: String!) {
         customers(first: 1, query: $email) {
@@ -138,9 +254,9 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
         }
       }
     `;
-    
+
     const response = await client.request(query, {
-      variables: { email: `email:${email}` }
+      variables: { email: `email:${email}` },
     });
 
     const customerData = (response.data as any)?.customers?.edges?.[0]?.node;
@@ -151,29 +267,40 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
 
     res.json({
       shopDomain: connection.shop_domain,
-      customer: customerData
+      customer: customerData,
     });
-
   } catch (error) {
     console.error("Shopify API Error:", error);
     res.status(500).json({ error: "Failed to fetch from Shopify" });
   }
 });
 
+// ---------------------------------------------------------------------------
 // Cancel Order
+// ---------------------------------------------------------------------------
+
 shopifyRouter.post("/order/cancel", requireAuth, async (req, res) => {
-  const { orderId, teamId } = req.body;
+  const { orderId, teamId, shopDomain } = req.body;
 
   if (!orderId || !teamId) {
     return res.status(400).json({ error: "Missing orderId or teamId" });
   }
 
   try {
-    const { data: connection } = await supabaseService
+    const shopify = await getShopifyForTeam(teamId);
+    if (!shopify) {
+      return res.status(404).json({ error: "No Shopify app configured for this team" });
+    }
+
+    const supabase = getSupabaseAdmin();
+    let connectionQuery = supabase
       .from("shopify_connections")
       .select("*")
-      .eq("team_id", teamId)
-      .single();
+      .eq("team_id", teamId);
+    if (shopDomain) {
+      connectionQuery = connectionQuery.eq("shop_domain", shopDomain);
+    }
+    const { data: connection } = await connectionQuery.limit(1).single();
 
     if (!connection) {
       return res.status(404).json({ error: "No Shopify connection found for this team" });
@@ -183,8 +310,8 @@ shopifyRouter.post("/order/cancel", requireAuth, async (req, res) => {
       session: {
         shop: connection.shop_domain,
         accessToken: connection.access_token,
-        isOnline: false
-      } as any
+        isOnline: false,
+      } as any,
     });
 
     const mutation = `
@@ -203,7 +330,7 @@ shopifyRouter.post("/order/cancel", requireAuth, async (req, res) => {
     `;
 
     const response = await client.request(mutation, {
-      variables: { orderId }
+      variables: { orderId },
     });
 
     const errors = (response.data as any)?.orderCancel?.orderCancelUserErrors;
@@ -218,8 +345,11 @@ shopifyRouter.post("/order/cancel", requireAuth, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
 // Fetch Order Communication
-shopifyRouter.get("/order-communication", async (req, res) => {
+// ---------------------------------------------------------------------------
+
+shopifyRouter.get("/order-communication", requireAuth, async (req, res) => {
   const shopDomain = req.query.shop as string;
   const orderName = req.query.orderName as string;
 
@@ -228,8 +358,8 @@ shopifyRouter.get("/order-communication", async (req, res) => {
   }
 
   try {
-    // 1. Get Shopify connection
-    const { data: connection } = await supabaseService
+    const supabase = getSupabaseAdmin();
+    const { data: connection } = await supabase
       .from("shopify_connections")
       .select("team_id")
       .eq("shop_domain", shopDomain)
@@ -239,17 +369,14 @@ shopifyRouter.get("/order-communication", async (req, res) => {
       return res.status(404).json({ error: "Shop not connected" });
     }
 
-    // 2. Fetch emails for this team that have orderName in the subject
-    const { data: emails, error } = await supabaseService
+    const { data: emails, error } = await supabase
       .from("emails")
       .select("*")
-      .eq("team_id", connection.team_id)
+      .eq("inbox_id", connection.team_id)
       .ilike("subject", `%${orderName}%`)
       .order("received_at", { ascending: false });
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     res.json({ emails: emails || [] });
   } catch (error) {

@@ -25,3 +25,6 @@ double_confirm_changes = true
 
 [realtime]
 enabled = true
+
+[analytics]
+enabled = false

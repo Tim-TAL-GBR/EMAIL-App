@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Platform, ActivityIndicator, Alert } from 'react-native';
-import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
+import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { Button } from '../../../components/ui/Button';
 import { supabase } from '../../../lib/supabase';
 
@@ -34,6 +34,12 @@ const INTEGRATIONS = [
   { name: 'GitHub', color: '#24292E', category: 'Entwickler' },
 ];
 
+interface ShopifyStatus {
+  configured: boolean;
+  appHostName: string | null;
+  shops: Array<{ shop_domain: string; created_at: string | null }>;
+}
+
 export default function IntegrationsSettingsScreen() {
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
@@ -42,14 +48,31 @@ export default function IntegrationsSettingsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [activeCategory, setActiveCategory] = useState('Alle');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Maps team_id to an array of connected integration objects
-  const [activeIntegrations, setActiveIntegrations] = useState<Record<string, any[]>>({});
-  const [shopifyConnectVisible, setShopifyConnectVisible] = useState(false);
-  const [shopifyDomain, setShopifyDomain] = useState('');
 
-  useEffect(() => {
-    loadOrganizations();
+  const [activeIntegrations, setActiveIntegrations] = useState<Record<string, any[]>>({});
+  const [shopifyStatuses, setShopifyStatuses] = useState<Record<string, ShopifyStatus>>({});
+
+  const [shopifyModalVisible, setShopifyModalVisible] = useState(false);
+  const [shopifyStep, setShopifyStep] = useState<'config' | 'connect'>('config');
+  const [shopifyApiKey, setShopifyApiKey] = useState('');
+  const [shopifyApiSecret, setShopifyApiSecret] = useState('');
+  const [shopifyHostName, setShopifyHostName] = useState('');
+  const [shopifyDomain, setShopifyDomain] = useState('');
+  const [shopifySaving, setShopifySaving] = useState(false);
+
+  const fetchShopifyStatus = useCallback(async (teamId: string) => {
+    try {
+      const status: ShopifyStatus = await apiRequest(`/api/shopify/status?team_id=${teamId}`);
+      setShopifyStatuses(prev => ({ ...prev, [teamId]: status }));
+      setActiveIntegrations(prev => {
+        const integrations = [...(prev[teamId] || []).filter(i => i.name !== 'Shopify')];
+        if (status.configured || status.shops.length > 0) {
+          integrations.push({ name: 'Shopify', color: '#96BF48', status: 'Verbunden' });
+        }
+        return { ...prev, [teamId]: integrations };
+      });
+    } catch {
+    }
   }, []);
 
   const loadOrganizations = async () => {
@@ -58,14 +81,14 @@ export default function IntegrationsSettingsScreen() {
       setOrganizations(data);
       if (data && data.length > 0) {
         setActiveTeamId(data[0].id);
-        
-        // Mock loading active integrations per team
-        // In a real app we would fetch the connections from the DB per team
-        const initialMap: any = {};
+        const initialMap: Record<string, any[]> = {};
         for (const t of data) {
           initialMap[t.id] = [];
         }
         setActiveIntegrations(initialMap);
+        for (const t of data) {
+          await fetchShopifyStatus(t.id);
+        }
       }
     } catch (e: any) {
       Alert.alert('Fehler', e.message);
@@ -74,26 +97,21 @@ export default function IntegrationsSettingsScreen() {
     }
   };
 
-  // Check URL params for success (on web)
+  useEffect(() => {
+    loadOrganizations();
+  }, []);
+
   useEffect(() => {
     if (Platform.OS === 'web' && window.location.search.includes('shopify_success=true')) {
-      const params = new URLSearchParams(window.location.search);
-      const teamIdFromUrl = params.get('team_id'); // We'd need backend to return team_id but we assume activeTeamId for now
-      
       if (activeTeamId) {
-         setActiveIntegrations(prev => {
-            const teamIntegrations = prev[activeTeamId] || [];
-            return {
-              ...prev,
-              [activeTeamId]: [...teamIntegrations.filter(i => i.name !== 'Shopify'), { name: 'Shopify', color: '#96BF48', status: 'Verbunden' }]
-            };
-         });
+        fetchShopifyStatus(activeTeamId);
       }
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [activeTeamId]);
 
   const currentIntegrations = activeTeamId ? (activeIntegrations[activeTeamId] || []) : [];
+  const currentShopifyStatus = activeTeamId ? shopifyStatuses[activeTeamId] : undefined;
 
   const handleToggleIntegration = (item: any) => {
     if (!activeTeamId) return;
@@ -101,14 +119,14 @@ export default function IntegrationsSettingsScreen() {
     if (item.name === 'Shopify') {
       const exists = currentIntegrations.find(i => i.name === 'Shopify');
       if (exists) {
-        // Disconnect locally
         setActiveIntegrations(prev => ({
           ...prev,
           [activeTeamId]: prev[activeTeamId].filter(i => i.name !== 'Shopify')
         }));
       } else {
         setModalVisible(false);
-        setShopifyConnectVisible(true);
+        setShopifyStep(currentShopifyStatus?.configured ? 'connect' : 'config');
+        setShopifyModalVisible(true);
       }
       return;
     }
@@ -128,16 +146,68 @@ export default function IntegrationsSettingsScreen() {
     }
   };
 
+  const handleSaveAppConfig = async () => {
+    if (!shopifyApiKey.trim() || !shopifyApiSecret.trim() || !activeTeamId) return;
+    setShopifySaving(true);
+    try {
+      await apiRequest('/api/shopify/app-config', 'POST', {
+        teamId: activeTeamId,
+        apiKey: shopifyApiKey.trim(),
+        apiSecret: shopifyApiSecret.trim(),
+        appHostName: shopifyHostName.trim() || null,
+      });
+      setShopifyStep('connect');
+      await fetchShopifyStatus(activeTeamId);
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    } finally {
+      setShopifySaving(false);
+    }
+  };
+
   const handleConnectShopify = () => {
     if (!shopifyDomain.trim() || !activeTeamId) return;
-    
-    const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-    
+    const backendUrl = API_URL;
     if (Platform.OS === 'web') {
       window.location.href = `${backendUrl}/api/shopify/auth?shop=${shopifyDomain.trim()}&team_id=${activeTeamId}`;
     } else {
-      Alert.alert("Info", "OAuth via Mobile noch nicht konfiguriert");
+      Alert.alert('Info', 'OAuth via Mobile wird über den Browser geöffnet');
     }
+  };
+
+  const handleDisconnectShop = async (shopDomain: string) => {
+    if (!activeTeamId) return;
+    Alert.alert(
+      'Shop trennen',
+      `Möchtest du ${shopDomain} wirklich trennen?`,
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Trennen',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiRequest('/api/shopify/disconnect', 'DELETE', {
+                teamId: activeTeamId,
+                shopDomain,
+              });
+              await fetchShopifyStatus(activeTeamId);
+            } catch (e: any) {
+              Alert.alert('Fehler', e.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const openShopifyModal = () => {
+    setShopifyApiKey('');
+    setShopifyApiSecret('');
+    setShopifyHostName('');
+    setShopifyDomain('');
+    setShopifyStep(currentShopifyStatus?.configured ? 'connect' : 'config');
+    setShopifyModalVisible(true);
   };
 
   const renderSidebar = () => (
@@ -153,7 +223,7 @@ export default function IntegrationsSettingsScreen() {
           <Text style={{ textAlign: 'center', color: Colors.textTertiary, padding: Spacing.md }}>Keine Organisationen</Text>
         ) : (
           organizations.map(org => (
-            <TouchableOpacity 
+            <TouchableOpacity
               key={org.id}
               style={[styles.sidebarItem, activeTeamId === org.id && styles.sidebarItemActive]}
               onPress={() => setActiveTeamId(org.id)}
@@ -174,7 +244,7 @@ export default function IntegrationsSettingsScreen() {
     </View>
   );
 
-  const renderModal = () => (
+  const renderIntegrationModal = () => (
     <View style={styles.modalOverlay}>
       <View style={styles.modalContainer}>
         <View style={styles.modalHeader}>
@@ -186,9 +256,9 @@ export default function IntegrationsSettingsScreen() {
           </View>
           <View style={styles.searchWrapper}>
             <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput 
-              style={styles.searchInput} 
-              placeholder="Integrationen suchen..." 
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Integrationen suchen..."
               placeholderTextColor={Colors.textTertiary}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -199,8 +269,8 @@ export default function IntegrationsSettingsScreen() {
         <View style={styles.modalBody}>
           <ScrollView style={styles.modalSidebarList}>
             {CATEGORIES.map(cat => (
-              <TouchableOpacity 
-                key={cat} 
+              <TouchableOpacity
+                key={cat}
                 style={[styles.categoryItem, activeCategory === cat && styles.categoryItemActive]}
                 onPress={() => setActiveCategory(cat)}
               >
@@ -212,14 +282,14 @@ export default function IntegrationsSettingsScreen() {
           </ScrollView>
 
           <ScrollView style={styles.modalContent}>
-            {INTEGRATIONS.filter(item => 
-              (activeCategory === 'Alle' || item.category === activeCategory) && 
+            {INTEGRATIONS.filter(item =>
+              (activeCategory === 'Alle' || item.category === activeCategory) &&
               item.name.toLowerCase().includes(searchQuery.toLowerCase())
             ).map(item => {
               const isConnected = currentIntegrations.some((i: any) => i.name === item.name);
               return (
-                <TouchableOpacity 
-                  key={item.name} 
+                <TouchableOpacity
+                  key={item.name}
                   style={[styles.integrationItem, isConnected && { backgroundColor: Colors.surfaceHover }]}
                   onPress={() => handleToggleIntegration(item)}
                 >
@@ -241,37 +311,151 @@ export default function IntegrationsSettingsScreen() {
 
   const renderShopifyModal = () => (
     <View style={styles.modalOverlay}>
-      <View style={[styles.modalContainer, { width: 400, minHeight: 'auto', padding: Spacing.xl }]}>
+      <View style={[styles.modalContainer, { width: 500, minHeight: 'auto', padding: Spacing.xl, display: 'flex', flexDirection: 'column' }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg }}>
-          <Text style={{ fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.text }}>Shopify verbinden</Text>
-          <TouchableOpacity onPress={() => setShopifyConnectVisible(false)}>
+          <Text style={{ fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.text }}>
+            {shopifyStep === 'config' ? 'Shopify App konfigurieren' : 'Shop verbinden'}
+          </Text>
+          <TouchableOpacity onPress={() => setShopifyModalVisible(false)}>
             <Text style={styles.closeIcon}>✕</Text>
           </TouchableOpacity>
         </View>
-        <Text style={{ color: Colors.textSecondary, marginBottom: Spacing.md }}>
-          Gib die URL deines Shopify-Shops ein (z.B. mein-shop.myshopify.com), um die Verbindung für "{organizations.find(o => o.id === activeTeamId)?.name}" herzustellen.
-        </Text>
-        <TextInput
-          style={[styles.searchInput, { marginBottom: Spacing.lg, height: 40, borderBottomWidth: 1, borderColor: Colors.border }]}
-          placeholder="dein-shop.myshopify.com"
-          placeholderTextColor={Colors.textTertiary}
-          value={shopifyDomain}
-          onChangeText={setShopifyDomain}
-          autoCapitalize="none"
-        />
-        <Button title="Verbinden" onPress={handleConnectShopify} disabled={!shopifyDomain.trim()} />
+
+        {shopifyStep === 'config' ? (
+          <>
+            <Text style={{ color: Colors.textSecondary, marginBottom: Spacing.md }}>
+              Gib die API-Zugangsdaten aus deinem Shopify Partners Dashboard ein.
+            </Text>
+            <Text style={{ color: Colors.textTertiary, fontSize: FontSize.sm, marginBottom: Spacing.lg }}>
+              Erstelle eine Custom App unter partners.shopify.com → Apps → App erstellen.
+            </Text>
+            <Text style={styles.fieldLabel}>API Key *</Text>
+            <TextInput
+              style={styles.fieldInput}
+              placeholder="shpat_..."
+              placeholderTextColor={Colors.textTertiary}
+              value={shopifyApiKey}
+              onChangeText={setShopifyApiKey}
+              autoCapitalize="none"
+            />
+            <Text style={styles.fieldLabel}>API Secret *</Text>
+            <TextInput
+              style={styles.fieldInput}
+              placeholder="ghp_..."
+              placeholderTextColor={Colors.textTertiary}
+              value={shopifyApiSecret}
+              onChangeText={setShopifyApiSecret}
+              autoCapitalize="none"
+              secureTextEntry
+            />
+            <Text style={styles.fieldLabel}>App Host Name (optional)</Text>
+            <TextInput
+              style={styles.fieldInput}
+              placeholder="31.97.39.118:3001"
+              placeholderTextColor={Colors.textTertiary}
+              value={shopifyHostName}
+              onChangeText={setShopifyHostName}
+              autoCapitalize="none"
+            />
+            <View style={{ marginTop: Spacing.lg }}>
+              <Button
+                title={shopifySaving ? 'Speichere...' : 'Speichern & weiter'}
+                onPress={handleSaveAppConfig}
+                disabled={!shopifyApiKey.trim() || !shopifyApiSecret.trim() || shopifySaving}
+              />
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={{ color: Colors.textSecondary, marginBottom: Spacing.md }}>
+              Gib die URL deines Shopify-Shops ein, um eine weitere Verbindung herzustellen.
+            </Text>
+            <Text style={styles.fieldLabel}>Shop Domain *</Text>
+            <TextInput
+              style={styles.fieldInput}
+              placeholder="mein-shop.myshopify.com"
+              placeholderTextColor={Colors.textTertiary}
+              value={shopifyDomain}
+              onChangeText={setShopifyDomain}
+              autoCapitalize="none"
+            />
+            <View style={{ marginTop: Spacing.lg }}>
+              <Button title="Verbinden" onPress={handleConnectShopify} disabled={!shopifyDomain.trim()} />
+            </View>
+            <TouchableOpacity
+              style={{ marginTop: Spacing.md, alignItems: 'center' }}
+              onPress={() => setShopifyStep('config')}
+            >
+              <Text style={{ color: Colors.primary, fontSize: FontSize.sm }}>App-Credentials ändern</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
   );
 
+  const renderShopifyDetails = () => {
+    if (!currentShopifyStatus) return null;
+    const status = currentShopifyStatus;
+    return (
+      <View style={styles.card}>
+        <View style={styles.shopifyHeader}>
+          <View style={styles.shopifyHeaderLeft}>
+            <View style={[styles.integrationIcon, { backgroundColor: '#96BF48', width: 32, height: 32 }]} />
+            <View>
+              <Text style={{ fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.text }}>Shopify</Text>
+              <Text style={{ fontSize: FontSize.sm, color: status.configured ? Colors.success : Colors.warning }}>
+                {status.configured ? 'App konfiguriert' : 'App nicht konfiguriert'}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.addButton} onPress={openShopifyModal}>
+            <Text style={styles.addButtonText}>
+              {status.configured ? 'Shop verbinden' : 'Konfigurieren'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {status.shops.length > 0 && (
+          <View style={{ marginTop: Spacing.md }}>
+            <Text style={{ fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textSecondary, marginBottom: Spacing.sm }}>
+              Verbundene Shops ({status.shops.length})
+            </Text>
+            {status.shops.map((shop, idx) => (
+              <View key={shop.shop_domain} style={[styles.shopItem, idx > 0 && styles.shopItemBorder]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.text }}>{shop.shop_domain}</Text>
+                  {shop.created_at && (
+                    <Text style={{ fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 }}>
+                      Verbunden am {new Date(shop.created_at).toLocaleDateString('de-DE')}
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity onPress={() => handleDisconnectShop(shop.shop_domain)}>
+                  <Text style={{ color: Colors.error, fontSize: FontSize.sm }}>Trennen</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {status.shops.length === 0 && status.configured && (
+          <Text style={{ fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.md, fontStyle: 'italic' }}>
+            Noch kein Shop verbunden. Klicke auf "Shop verbinden" um OAuth zu starten.
+          </Text>
+        )}
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
       {renderSidebar()}
-      
+
       <View style={styles.mainContent}>
-        {modalVisible && renderModal()}
-        {shopifyConnectVisible && renderShopifyModal()}
-        
+        {modalVisible && renderIntegrationModal()}
+        {shopifyModalVisible && renderShopifyModal()}
+
         {!activeTeamId ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>Wähle eine Organisation</Text>
@@ -299,23 +483,23 @@ export default function IntegrationsSettingsScreen() {
                 <Text style={styles.addButtonText}>Weitere hinzufügen</Text>
               </TouchableOpacity>
             </View>
-            
-            <View style={styles.card}>
-              {currentIntegrations.map((item: any, index: number) => (
-                <View key={item.name} style={[styles.activeIntegrationItem, index > 0 && styles.activeIntegrationItemBorder]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={[styles.integrationIcon, { backgroundColor: item.color }]} />
-                    <View>
-                      <Text style={styles.integrationName}>{item.name}</Text>
-                      <Text style={{ fontFamily: FontFamily, fontSize: FontSize.xs, color: Colors.textSecondary }}>{item.status}</Text>
-                    </View>
+
+            {renderShopifyDetails()}
+
+            {currentIntegrations.filter(i => i.name !== 'Shopify').map((item: any, index: number) => (
+              <View key={item.name} style={[styles.activeIntegrationItem, index > 0 && styles.activeIntegrationItemBorder]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={[styles.integrationIcon, { backgroundColor: item.color }]} />
+                  <View>
+                    <Text style={styles.integrationName}>{item.name}</Text>
+                    <Text style={{ fontFamily: FontFamily, fontSize: FontSize.xs, color: Colors.textSecondary }}>{item.status}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => handleToggleIntegration(item)}>
-                    <Text style={{ color: Colors.error, fontFamily: FontFamily, fontSize: FontSize.sm }}>Trennen</Text>
-                  </TouchableOpacity>
                 </View>
-              ))}
-            </View>
+                <TouchableOpacity onPress={() => handleToggleIntegration(item)}>
+                  <Text style={{ color: Colors.error, fontFamily: FontFamily, fontSize: FontSize.sm }}>Trennen</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
           </ScrollView>
         )}
       </View>
@@ -421,17 +605,46 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Colors.border,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
     overflow: 'hidden',
+  },
+  shopifyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  shopifyHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  shopItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.background,
+    borderRadius: 6,
+    marginBottom: Spacing.xs,
+  },
+  shopItemBorder: {
+    borderTopWidth: 0,
   },
   activeIntegrationItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: Spacing.sm,
   },
   activeIntegrationItemBorder: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderLight,
+    borderTopWidth: 0,
   },
   emptyState: {
     flex: 1,
@@ -467,8 +680,8 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: Colors.info,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
     borderRadius: 8,
   },
   addButtonText: {
@@ -476,6 +689,24 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: FontWeight.bold,
     color: '#FFF',
+  },
+  fieldLabel: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.text,
+    marginBottom: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  fieldInput: {
+    height: 40,
+    borderBottomWidth: 1,
+    borderColor: Colors.border,
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    color: Colors.text,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
   modalOverlay: {
     position: 'absolute',

@@ -805,6 +805,44 @@ export type Database = {
           },
         ]
       }
+      shopify_apps: {
+        Row: {
+          api_key: string
+          api_secret: string
+          app_host_name: string | null
+          created_at: string | null
+          id: string
+          team_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          api_key: string
+          api_secret: string
+          app_host_name?: string | null
+          created_at?: string | null
+          id?: string
+          team_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          api_key?: string
+          api_secret?: string
+          app_host_name?: string | null
+          created_at?: string | null
+          id?: string
+          team_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_apps_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: true
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shopify_connections: {
         Row: {
           access_token: string
@@ -837,7 +875,7 @@ export type Database = {
           {
             foreignKeyName: "shopify_connections_team_id_fkey"
             columns: ["team_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
