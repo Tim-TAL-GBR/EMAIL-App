@@ -68,7 +68,7 @@ export function useComments(emailId: string | null): UseCommentsReturn {
     try {
       const { data, error: fetchError } = await supabase
         .from('internal_comments')
-        .select('*, author:profiles(id, display_name, avatar_url, email)')
+        .select('*, author:profiles!internal_comments_author_id_fkey(id, display_name, avatar_url, email)')
         .eq('email_id', emailId)
         .order('created_at', { ascending: true });
 
@@ -115,7 +115,7 @@ export function useComments(emailId: string | null): UseCommentsReturn {
           // Fetch the full comment with author join
           const { data, error } = await supabase
             .from('internal_comments')
-            .select('*, author:profiles(id, display_name, avatar_url, email)')
+            .select('*, author:profiles!internal_comments_author_id_fkey(id, display_name, avatar_url, email)')
             .eq('id', (payload.new as { id: string }).id)
             .single();
 

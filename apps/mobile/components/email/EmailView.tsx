@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, LayoutRectangle, Alert } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, LayoutRectangle, Alert, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../lib/constants';
 import { EmailDetail } from '../email/EmailDetail';
@@ -14,13 +14,15 @@ import { RuleCondition } from '../../stores/ruleStore';
 import { useComposerStore } from '../../stores/composerStore';
 
 import { useLabelStore } from '../../stores/useLabelStore';
+import { TaskComposer } from '../tasks/TaskComposer';
+import { ShopifyCustomerCard } from '../integrations/ShopifyCustomerCard';
 
 interface EmailViewProps {
   emailId: string;
 }
 
 export function EmailView({ emailId: threadId }: EmailViewProps) {
-  const { threads, updateEmailStatus, archiveEmail, deleteEmail, snoozeEmail } = useEmailStore();
+  const { threads, updateEmailStatus, archiveEmail, deleteEmail, snoozeEmail, bulkActionEmails, pinnedThreads, togglePinThread } = useEmailStore();
   const [assignments, setAssignments] = useState<any[]>([]);
   const { labels, addLabelToEmail, fetchLabels } = useLabelStore();
 
@@ -28,6 +30,11 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
 
   useEffect(() => {
     if (selectedThread && selectedThread.latestEmail) {
+      const unreadEmailIds = selectedThread.emails.filter(e => !e.is_read).map(e => e.id);
+      if (unreadEmailIds.length > 0) {
+        bulkActionEmails(unreadEmailIds, 'read');
+      }
+
       loadAssignments(selectedThread.latestEmail.id);
       
       // Fallback team_id fetching if it's available (assuming first team for now if missing)
@@ -91,7 +98,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const [moveMenuVisible, setMoveMenuVisible] = useState(false);
 
   const [ruleComposerVisible, setRuleComposerVisible] = useState(false);
-  const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>();
+  const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>({ field: 'from', operator: 'equals', value: '' });
+  const [taskComposerVisible, setTaskComposerVisible] = useState(false);
 
   const handleStatusChange = async (id: string, status: 'open' | 'in_progress' | 'done') => {
     await updateEmailStatus(id, status);
@@ -105,6 +113,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
     );
   }
 
+  const isPinned = pinnedThreads.some(p => p.thread_id === selectedThread.id);
+
   const currentAssignee = assignments.length > 0
     ? {
         id: assignments[0].assigned_to,
@@ -117,7 +127,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
-      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       const response = await fetch(`${baseUrl}/api/emails/${selectedThread.latestEmail.id}/assign`, {
         method: 'POST',
         headers: {
@@ -142,7 +152,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
-      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       const response = await fetch(`${baseUrl}/api/emails/${selectedThread.latestEmail.id}/unassign`, {
         method: 'POST',
         headers: {
@@ -198,7 +208,9 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
 
   return (
     <View style={styles.container}>
-      <ChatFeed 
+      <View style={{ flex: 1, flexDirection: Platform.OS === 'web' ? 'row' : 'column' }}>
+        <View style={{ flex: 1 }}>
+          <ChatFeed 
         emailId={selectedThread.emails[0].id} 
         emails={selectedThread.emails}
         inboxId={selectedThread.latestEmail.inbox_id}
@@ -275,6 +287,17 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
           </View>
         }
       />
+      </View>
+      
+      {Platform.OS === 'web' && selectedThread?.latestEmail && (
+        <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
+          <ShopifyCustomerCard 
+            email={selectedThread.latestEmail.from_address} 
+            detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]} // simple regex for #1234
+          />
+        </View>
+      )}
+      </View>
 
       <PopoverMenu
         visible={snoozeMenuVisible}
@@ -306,6 +329,10 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
           } },
           { id: 'fwd', label: 'Weiterleiten', icon: 'corner-up-right', onPress: () => Alert.alert('Info', 'Weiterleiten ausgewählt') },
           { id: 'resend', label: 'Erneut senden', icon: 'rotate-cw', onPress: () => Alert.alert('Info', 'Erneut senden ausgewählt') },
+          { id: 'pin', label: isPinned ? 'Von Favoriten entfernen' : 'In Favoriten anpinnen', icon: 'star', onPress: () => {
+            setMoreMenuVisible(false);
+            togglePinThread(selectedThread.id, selectedThread.latestEmail?.subject || 'Ohne Betreff');
+          } },
           { id: 'label', label: 'Label vergeben', icon: 'tag', onPress: () => {
             setMoreMenuVisible(false);
             setTimeout(() => setLabelMenuVisible(true), 300);
@@ -318,6 +345,10 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             setMoreMenuVisible(false);
             setRuleInitialCondition({ field: 'from', operator: 'equals', value: selectedThread.latestEmail.from_address });
             setTimeout(() => setRuleComposerVisible(true), 300);
+          } },
+          { id: 'task', label: 'Als Task anlegen', icon: 'check-square', onPress: () => {
+            setMoreMenuVisible(false);
+            setTimeout(() => setTaskComposerVisible(true), 300);
           } },
           { id: 'trash', label: 'Löschen', icon: 'trash-2', destructive: true, onPress: () => deleteEmail(selectedThread.latestEmail.id) },
         ]}
@@ -373,6 +404,15 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
         teamId={selectedThread.latestEmail.team_id}
         initialCondition={ruleInitialCondition}
       />
+
+      {selectedThread.latestEmail && (
+        <TaskComposer
+          visible={taskComposerVisible}
+          onClose={() => setTaskComposerVisible(false)}
+          linkedEmailId={selectedThread.latestEmail.id}
+          teamId={selectedThread.latestEmail.team_id}
+        />
+      )}
     </View>
   );
 }

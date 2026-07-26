@@ -229,6 +229,7 @@ export type Database = {
           mailbox_name: string | null
           message_id: string | null
           received_at: string
+          snippet: string | null
           snooze_until: string | null
           status: Database["public"]["Enums"]["email_status"]
           subject: string | null
@@ -257,6 +258,7 @@ export type Database = {
           mailbox_name?: string | null
           message_id?: string | null
           received_at?: string
+          snippet?: string | null
           snooze_until?: string | null
           status?: Database["public"]["Enums"]["email_status"]
           subject?: string | null
@@ -285,6 +287,7 @@ export type Database = {
           mailbox_name?: string | null
           message_id?: string | null
           received_at?: string
+          snippet?: string | null
           snooze_until?: string | null
           status?: Database["public"]["Enums"]["email_status"]
           subject?: string | null
@@ -383,6 +386,13 @@ export type Database = {
             columns: ["inbox_id"]
             isOneToOne: false
             referencedRelation: "inboxes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inbox_members_user_id_profiles_fk"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -529,6 +539,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "internal_comments_author_id_profiles_fk"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "internal_comments_email_id_fkey"
             columns: ["email_id"]
             isOneToOne: false
@@ -613,6 +630,67 @@ export type Database = {
             columns: ["email_id"]
             isOneToOne: false
             referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_group_members: {
+        Row: {
+          group_id: string
+          joined_at: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          group_id: string
+          joined_at?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          group_id?: string
+          joined_at?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "org_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          team_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          team_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          team_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_groups_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]
@@ -722,6 +800,44 @@ export type Database = {
             foreignKeyName: "rules_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_connections: {
+        Row: {
+          access_token: string
+          created_at: string | null
+          id: string
+          scopes: string | null
+          shop_domain: string
+          team_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          access_token: string
+          created_at?: string | null
+          id?: string
+          scopes?: string | null
+          shop_domain: string
+          team_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          access_token?: string
+          created_at?: string | null
+          id?: string
+          scopes?: string | null
+          shop_domain?: string
+          team_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_connections_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: true
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
@@ -866,6 +982,13 @@ export type Database = {
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "team_members_user_id_profiles_fk"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       teams: {
@@ -962,6 +1085,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_internal_comments_policies: {
+        Args: never
+        Returns: {
+          cmd: string
+          permissive: string
+          policyname: string
+          qual: string
+          roles: string[]
+          with_check: string
+        }[]
+      }
       get_user_inbox_role: {
         Args: { p_inbox_id: string }
         Returns: Database["public"]["Enums"]["inbox_role"]
@@ -987,6 +1121,66 @@ export type Database = {
         Args: { p_thread_id: string; p_user_id: string }
         Returns: boolean
       }
+      test_rls_function: {
+        Args: { e_id: string; u_id: string }
+        Returns: boolean
+      }
+      test_user_comments: {
+        Args: { e_id: string; u_id: string }
+        Returns: {
+          author_id: string
+          body: string
+          created_at: string
+          email_id: string
+          id: string
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "internal_comments"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      test_user_emails: {
+        Args: { e_id: string; u_id: string }
+        Returns: {
+          bcc_addresses: string[] | null
+          body_html: string | null
+          body_text: string | null
+          cc_addresses: string[] | null
+          created_at: string
+          direction: Database["public"]["Enums"]["email_direction"]
+          from_address: string
+          id: string
+          imap_uid: number | null
+          inbox_id: string
+          is_archived: boolean | null
+          is_deleted: boolean
+          is_read: boolean
+          is_starred: boolean
+          last_activity_at: string
+          mailbox_name: string | null
+          message_id: string | null
+          received_at: string
+          snippet: string | null
+          snooze_until: string | null
+          status: Database["public"]["Enums"]["email_status"]
+          subject: string | null
+          tags: string[] | null
+          team_id: string
+          thread_id: string | null
+          to_addresses: string[]
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "emails"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      user_has_email_access: { Args: { e_id: string }; Returns: boolean }
     }
     Enums: {
       email_direction: "inbound" | "outbound"

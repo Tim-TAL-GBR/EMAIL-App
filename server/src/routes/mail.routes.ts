@@ -172,6 +172,25 @@ mailRouter.post("/send", async (req, res) => {
       return;
     }
 
+    // 4.5 Fetch signature for this user in this team
+    const { data: signature } = await supabase
+      .from("signatures")
+      .select("content_text")
+      .eq("team_id", inbox.team_id)
+      .eq("owner_id", userId)
+      .eq("scope", "team")
+      .maybeSingle();
+
+    let finalBodyHtml = bodyHtml;
+    let finalBodyText = bodyText;
+
+    if (signature && signature.content_text) {
+      if (finalBodyHtml) {
+        finalBodyHtml += `<br><br><div class="signature">${signature.content_text}</div>`;
+      }
+      finalBodyText += `\n\n-- \n${signature.content_text.replace(/<[^>]+>/g, '')}`;
+    }
+
     // 5. Send Email via SMTP
     await smtpClient.sendEmail({
       inboxId,
@@ -180,8 +199,8 @@ mailRouter.post("/send", async (req, res) => {
       cc,
       bcc,
       subject,
-      bodyText,
-      bodyHtml,
+      bodyText: finalBodyText,
+      bodyHtml: finalBodyHtml,
       inReplyTo,
       references
     });

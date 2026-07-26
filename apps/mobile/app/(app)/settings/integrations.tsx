@@ -1,90 +1,182 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Platform, ActivityIndicator, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
+import { Button } from '../../../components/ui/Button';
+import { supabase } from '../../../lib/supabase';
+
+const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
+async function apiRequest(path: string, method = 'GET', body?: object) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session?.access_token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
+  return json;
+}
 
 const CATEGORIES = [
-  'Alle',
-  'KI',
-  'Automatisierung',
-  'Cloud-Speicher',
-  'Kommunikation',
-  'Kontakte',
-  'CRM',
-  'Entwickler',
-  'E-Commerce',
-  'Grammatik & Rechtschreibung',
-  'Interne Tools',
-  'MCP',
-  'Meetings',
-  'No-Code',
-  'Zahlungen',
-  'Produktivität',
-  'Projektmanagement',
-  'Soziales & Spaß',
-  'Video',
-  'Sprache'
+  'Alle', 'KI', 'Automatisierung', 'Cloud-Speicher', 'Kommunikation', 'Kontakte',
+  'CRM', 'Entwickler', 'E-Commerce', 'Produktivität', 'Projektmanagement', 'Zahlungen'
 ];
 
 const INTEGRATIONS = [
-  { name: 'Aircall', color: '#00B388' },
-  { name: 'Asana', color: '#F06A6A' },
-  { name: 'Attio MCP', color: '#000000' },
-  { name: 'ChargeDesk', color: '#3A8EE6' },
-  { name: 'Claude', color: '#D97757' },
-  { name: 'ClickUp', color: '#7B68EE' },
-  { name: 'ClickUp MCP', color: '#7B68EE' },
-  { name: 'Close', color: '#36B37E' },
-  { name: '{ } Custom', color: '#555555' },
-  { name: 'Custom MCP', color: '#555555' },
-  { name: 'Daylite', color: '#FF9900' },
-  { name: 'Dialpad', color: '#A020F0' },
-  { name: 'Dropbox', color: '#0061FF' },
-  { name: 'FullContact Enrich', color: '#1B95E0' },
-  { name: 'Gemini', color: '#1A73E8' },
-  { name: 'Giphy', color: '#000000' },
-  { name: 'GitHub', color: '#24292E' },
-  { name: 'Google Drive', color: '#1DA462' },
-  { name: 'HubSpot', color: '#FF7A59' },
-  { name: 'Integrately', color: '#FF9900' },
-  { name: 'Linear MCP', color: '#5E6AD2' },
-  { name: 'Make', color: '#A020F0' },
-  { name: 'Notion MCP', color: '#000000' },
-  { name: 'OpenAI', color: '#10A37F' },
-  { name: 'Pipedrive', color: '#262626' },
-  { name: 'Relay', color: '#0066FF' },
-  { name: 'Retool', color: '#3D5AFE' },
-  { name: 'Salesforce', color: '#00A1E0' },
-  { name: 'Shopify', color: '#96BF48' },
-  { name: 'Stripe MCP', color: '#635BFF' },
-  { name: 'Synology', color: '#4B92C2' },
-  { name: 'Todoist', color: '#E44332' },
-  { name: 'Todoist MCP', color: '#E44332' },
-  { name: 'Trello', color: '#0052CC' },
-  { name: 'Video Chat', color: '#2D8CFF' },
-  { name: 'Zapier', color: '#FF4A00' },
-  { name: 'Zoom', color: '#2D8CFF' }
+  { name: 'Shopify', color: '#96BF48', category: 'E-Commerce' },
+  { name: 'Stripe MCP', color: '#635BFF', category: 'Zahlungen' },
+  { name: 'Notion MCP', color: '#000000', category: 'Produktivität' },
+  { name: 'Slack', color: '#4A154B', category: 'Kommunikation' },
+  { name: 'GitHub', color: '#24292E', category: 'Entwickler' },
 ];
 
 export default function IntegrationsSettingsScreen() {
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const [modalVisible, setModalVisible] = useState(false);
   const [activeCategory, setActiveCategory] = useState('Alle');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeIntegrations, setActiveIntegrations] = useState<any[]>([]);
+  
+  // Maps team_id to an array of connected integration objects
+  const [activeIntegrations, setActiveIntegrations] = useState<Record<string, any[]>>({});
+  const [shopifyConnectVisible, setShopifyConnectVisible] = useState(false);
+  const [shopifyDomain, setShopifyDomain] = useState('');
+
+  useEffect(() => {
+    loadOrganizations();
+  }, []);
+
+  const loadOrganizations = async () => {
+    try {
+      const data = await apiRequest('/api/teams');
+      setOrganizations(data);
+      if (data && data.length > 0) {
+        setActiveTeamId(data[0].id);
+        
+        // Mock loading active integrations per team
+        // In a real app we would fetch the connections from the DB per team
+        const initialMap: any = {};
+        for (const t of data) {
+          initialMap[t.id] = [];
+        }
+        setActiveIntegrations(initialMap);
+      }
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Check URL params for success (on web)
+  useEffect(() => {
+    if (Platform.OS === 'web' && window.location.search.includes('shopify_success=true')) {
+      const params = new URLSearchParams(window.location.search);
+      const teamIdFromUrl = params.get('team_id'); // We'd need backend to return team_id but we assume activeTeamId for now
+      
+      if (activeTeamId) {
+         setActiveIntegrations(prev => {
+            const teamIntegrations = prev[activeTeamId] || [];
+            return {
+              ...prev,
+              [activeTeamId]: [...teamIntegrations.filter(i => i.name !== 'Shopify'), { name: 'Shopify', color: '#96BF48', status: 'Verbunden' }]
+            };
+         });
+      }
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [activeTeamId]);
+
+  const currentIntegrations = activeTeamId ? (activeIntegrations[activeTeamId] || []) : [];
 
   const handleToggleIntegration = (item: any) => {
-    const exists = activeIntegrations.find(i => i.name === item.name);
+    if (!activeTeamId) return;
+
+    if (item.name === 'Shopify') {
+      const exists = currentIntegrations.find(i => i.name === 'Shopify');
+      if (exists) {
+        // Disconnect locally
+        setActiveIntegrations(prev => ({
+          ...prev,
+          [activeTeamId]: prev[activeTeamId].filter(i => i.name !== 'Shopify')
+        }));
+      } else {
+        setModalVisible(false);
+        setShopifyConnectVisible(true);
+      }
+      return;
+    }
+
+    const exists = currentIntegrations.find(i => i.name === item.name);
     if (exists) {
-      setActiveIntegrations(activeIntegrations.filter(i => i.name !== item.name));
+      setActiveIntegrations(prev => ({
+        ...prev,
+        [activeTeamId]: prev[activeTeamId].filter(i => i.name !== item.name)
+      }));
     } else {
-      setActiveIntegrations([...activeIntegrations, { ...item, status: 'Verbunden' }]);
+      setActiveIntegrations(prev => ({
+        ...prev,
+        [activeTeamId]: [...prev[activeTeamId], { ...item, status: 'Verbunden' }]
+      }));
       setModalVisible(false);
     }
   };
 
+  const handleConnectShopify = () => {
+    if (!shopifyDomain.trim() || !activeTeamId) return;
+    
+    const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+    
+    if (Platform.OS === 'web') {
+      window.location.href = `${backendUrl}/api/shopify/auth?shop=${shopifyDomain.trim()}&team_id=${activeTeamId}`;
+    } else {
+      Alert.alert("Info", "OAuth via Mobile noch nicht konfiguriert");
+    }
+  };
+
+  const renderSidebar = () => (
+    <View style={styles.sidebar}>
+      <View style={styles.sidebarHeader}>
+        <Text style={styles.sidebarHeaderTitle}>INTEGRATIONEN</Text>
+      </View>
+      <ScrollView style={styles.sidebarContent}>
+        <Text style={[styles.sectionHeader, { marginTop: Spacing.md }]}>Organisationen</Text>
+        {loading ? (
+          <ActivityIndicator style={{ margin: Spacing.md }} />
+        ) : organizations.length === 0 ? (
+          <Text style={{ textAlign: 'center', color: Colors.textTertiary, padding: Spacing.md }}>Keine Organisationen</Text>
+        ) : (
+          organizations.map(org => (
+            <TouchableOpacity 
+              key={org.id}
+              style={[styles.sidebarItem, activeTeamId === org.id && styles.sidebarItemActive]}
+              onPress={() => setActiveTeamId(org.id)}
+            >
+              <View style={[styles.orgAvatar, { backgroundColor: '#' + org.id.substring(0, 6).replace(/[^0-9A-Fa-f]/g, 'C') }]}>
+                <Text style={styles.orgAvatarText}>{org.name.substring(0, 2).toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sidebarItemTitle, activeTeamId === org.id && styles.sidebarItemTitleActive]} numberOfLines={1}>{org.name}</Text>
+                <Text style={[styles.sidebarItemSubtitle, activeTeamId === org.id && styles.sidebarItemSubtitleActive]}>
+                  Verbundene Apps
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+
   const renderModal = () => (
     <View style={styles.modalOverlay}>
       <View style={styles.modalContainer}>
-        {/* Modal Header */}
         <View style={styles.modalHeader}>
           <View style={styles.modalHeaderLeft}>
             <Text style={styles.modalHeaderTitle}>Integrationen</Text>
@@ -105,8 +197,7 @@ export default function IntegrationsSettingsScreen() {
         </View>
 
         <View style={styles.modalBody}>
-          {/* Sidebar */}
-          <ScrollView style={styles.modalSidebar}>
+          <ScrollView style={styles.modalSidebarList}>
             {CATEGORIES.map(cat => (
               <TouchableOpacity 
                 key={cat} 
@@ -120,10 +211,12 @@ export default function IntegrationsSettingsScreen() {
             ))}
           </ScrollView>
 
-          {/* List Content */}
           <ScrollView style={styles.modalContent}>
-            {INTEGRATIONS.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase())).map(item => {
-              const isConnected = activeIntegrations.some(i => i.name === item.name);
+            {INTEGRATIONS.filter(item => 
+              (activeCategory === 'Alle' || item.category === activeCategory) && 
+              item.name.toLowerCase().includes(searchQuery.toLowerCase())
+            ).map(item => {
+              const isConnected = currentIntegrations.some((i: any) => i.name === item.name);
               return (
                 <TouchableOpacity 
                   key={item.name} 
@@ -146,48 +239,86 @@ export default function IntegrationsSettingsScreen() {
     </View>
   );
 
-  return (
-    <View style={[styles.container, activeIntegrations.length > 0 && { justifyContent: 'flex-start', alignItems: 'stretch' }]}>
-      {modalVisible && renderModal()}
-      
-      {activeIntegrations.length === 0 ? (
-        <View style={styles.emptyState}>
-          <View style={styles.emptyIconBox}>
-            <Text style={styles.emptyIconText}>📁</Text>
-          </View>
-          <Text style={styles.emptyTitle}>Du hast keine Integrationen</Text>
-          <Text style={styles.emptySubtitle}>Verbinde deine Lieblingstools</Text>
-          <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
-            <Text style={styles.addButtonText}>Integration hinzufügen</Text>
+  const renderShopifyModal = () => (
+    <View style={styles.modalOverlay}>
+      <View style={[styles.modalContainer, { width: 400, minHeight: 'auto', padding: Spacing.xl }]}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg }}>
+          <Text style={{ fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.text }}>Shopify verbinden</Text>
+          <TouchableOpacity onPress={() => setShopifyConnectVisible(false)}>
+            <Text style={styles.closeIcon}>✕</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <ScrollView style={styles.activeListScroll} contentContainerStyle={styles.activeListContent}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl }}>
-            <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold', color: Colors.text }}>Aktive Integrationen</Text>
+        <Text style={{ color: Colors.textSecondary, marginBottom: Spacing.md }}>
+          Gib die URL deines Shopify-Shops ein (z.B. mein-shop.myshopify.com), um die Verbindung für "{organizations.find(o => o.id === activeTeamId)?.name}" herzustellen.
+        </Text>
+        <TextInput
+          style={[styles.searchInput, { marginBottom: Spacing.lg, height: 40, borderBottomWidth: 1, borderColor: Colors.border }]}
+          placeholder="dein-shop.myshopify.com"
+          placeholderTextColor={Colors.textTertiary}
+          value={shopifyDomain}
+          onChangeText={setShopifyDomain}
+          autoCapitalize="none"
+        />
+        <Button title="Verbinden" onPress={handleConnectShopify} disabled={!shopifyDomain.trim()} />
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      {renderSidebar()}
+      
+      <View style={styles.mainContent}>
+        {modalVisible && renderModal()}
+        {shopifyConnectVisible && renderShopifyModal()}
+        
+        {!activeTeamId ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Wähle eine Organisation</Text>
+            <Text style={styles.emptySubtitle}>Bitte wähle links eine Organisation aus, um Integrationen zu verwalten.</Text>
+          </View>
+        ) : currentIntegrations.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconBox}>
+              <Text style={styles.emptyIconText}>📁</Text>
+            </View>
+            <Text style={styles.emptyTitle}>Keine Integrationen für {organizations.find(o => o.id === activeTeamId)?.name}</Text>
+            <Text style={styles.emptySubtitle}>Verbinde deine Lieblingstools mit dieser Organisation</Text>
             <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
               <Text style={styles.addButtonText}>Integration hinzufügen</Text>
             </TouchableOpacity>
           </View>
-          
-          <View style={styles.card}>
-            {activeIntegrations.map((item, index) => (
-              <View key={item.name} style={[styles.activeIntegrationItem, index > 0 && styles.activeIntegrationItemBorder]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={[styles.integrationIcon, { backgroundColor: item.color }]} />
-                  <View>
-                    <Text style={styles.integrationName}>{item.name}</Text>
-                    <Text style={{ fontFamily: FontFamily, fontSize: FontSize.xs, color: Colors.textSecondary }}>{item.status}</Text>
-                  </View>
-                </View>
-                <TouchableOpacity onPress={() => handleToggleIntegration(item)}>
-                  <Text style={{ color: Colors.error, fontFamily: FontFamily, fontSize: FontSize.sm }}>Trennen</Text>
-                </TouchableOpacity>
+        ) : (
+          <ScrollView style={styles.activeListScroll} contentContainerStyle={styles.activeListContent}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl }}>
+              <View>
+                <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold', color: Colors.text }}>Aktive Integrationen</Text>
+                <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.textSecondary }}>Für {organizations.find(o => o.id === activeTeamId)?.name}</Text>
               </View>
-            ))}
-          </View>
-        </ScrollView>
-      )}
+              <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
+                <Text style={styles.addButtonText}>Weitere hinzufügen</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.card}>
+              {currentIntegrations.map((item: any, index: number) => (
+                <View key={item.name} style={[styles.activeIntegrationItem, index > 0 && styles.activeIntegrationItemBorder]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.integrationIcon, { backgroundColor: item.color }]} />
+                    <View>
+                      <Text style={styles.integrationName}>{item.name}</Text>
+                      <Text style={{ fontFamily: FontFamily, fontSize: FontSize.xs, color: Colors.textSecondary }}>{item.status}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity onPress={() => handleToggleIntegration(item)}>
+                    <Text style={{ color: Colors.error, fontFamily: FontFamily, fontSize: FontSize.sm }}>Trennen</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        )}
+      </View>
     </View>
   );
 }
@@ -195,9 +326,86 @@ export default function IntegrationsSettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    flexDirection: 'row',
     backgroundColor: Colors.background,
+  },
+  sidebar: {
+    width: 280,
+    backgroundColor: Colors.surfaceHover,
+    borderRightWidth: 1,
+    borderRightColor: Colors.border,
+    display: Platform.OS === 'web' ? 'flex' : 'none',
+  },
+  sidebarHeader: {
+    padding: Spacing.xl,
+    paddingBottom: Spacing.md,
+  },
+  sidebarHeaderTitle: {
+    fontFamily: FontFamily,
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: Colors.textTertiary,
+    letterSpacing: 1,
+  },
+  sidebarContent: {
+    flex: 1,
+  },
+  sectionHeader: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.xs,
+    fontWeight: 'bold',
+    color: Colors.textTertiary,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+    textTransform: 'uppercase',
+  },
+  sidebarItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
+  },
+  sidebarItemActive: {
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderLeftColor: Colors.primary,
+  },
+  orgAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: Spacing.md,
+  },
+  orgAvatarText: {
+    color: '#FFF',
+    fontSize: FontSize.sm,
+    fontWeight: 'bold',
+  },
+  sidebarItemTitle: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+  },
+  sidebarItemTitleActive: {
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  sidebarItemSubtitle: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  sidebarItemSubtitleActive: {
+    color: Colors.primary,
+  },
+  mainContent: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: '#FFF',
   },
   activeListScroll: {
     flex: 1,
@@ -226,7 +434,9 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.borderLight,
   },
   emptyState: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyIconBox: {
     width: 64,
@@ -341,7 +551,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
   },
-  modalSidebar: {
+  modalSidebarList: {
     width: 200,
     backgroundColor: Colors.surfaceHover,
     borderRightWidth: 1,

@@ -68,8 +68,8 @@ export default function SettingsInboxDetail() {
     
     setTesting(true);
     try {
-      // Use EXPO_PUBLIC_BACKEND_URL or fallback to localhost
-      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      // Use EXPO_PUBLIC_SERVER_URL or fallback to localhost
+      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       const response = await fetch(`${backendUrl}/api/mail/test-connection`, {
         method: 'POST',
         headers: {
@@ -142,7 +142,7 @@ export default function SettingsInboxDetail() {
     
     // 2. Restart backend client
     try {
-      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       await fetch(`${backendUrl}/api/mail/restart-client`, {
         method: 'POST',
         headers: {

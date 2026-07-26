@@ -392,7 +392,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
       {composerContent}
     </Modal>
   );

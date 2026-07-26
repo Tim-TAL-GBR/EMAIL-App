@@ -370,6 +370,22 @@ export class ImapClient {
     console.log(`[ImapClient] Marked uid ${uid} as deleted in ${mailbox}`);
   }
 
+  public async deleteMessages(uids: number[], mailbox: string = "INBOX"): Promise<void> {
+    if (!uids.length) return;
+    if (!this.isConnected) await this.connect();
+    
+    // Ensure we are in the correct mailbox
+    if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
+      await this.client.mailboxOpen(mailbox);
+    }
+    
+    // Add \Deleted flag for all uids at once
+    const uidString = uids.join(',');
+    await this.client.messageFlagsAdd({ uid: uidString }, ["\\Deleted"], { uid: true });
+    
+    console.log(`[ImapClient] Marked ${uids.length} uids as deleted in ${mailbox}`);
+  }
+
   public async archiveMessage(uid: number, mailbox: string = "INBOX"): Promise<void> {
     if (!this.isConnected) await this.connect();
     
@@ -393,6 +409,33 @@ export class ImapClient {
       console.warn(`[ImapClient] No archive folder found for ${this.config.user}. Setting \Archive flag manually.`);
       // Some servers might not have an archive folder but support custom flags
       await this.client.messageFlagsAdd({ uid }, ["Archive"], { uid: true });
+    }
+  }
+
+  public async archiveMessages(uids: number[], mailbox: string = "INBOX"): Promise<void> {
+    if (!uids.length) return;
+    if (!this.isConnected) await this.connect();
+    
+    if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
+      await this.client.mailboxOpen(mailbox);
+    }
+    
+    const folders = await this.client.list();
+    const archiveFolder = folders.find(f => 
+      f.name.toLowerCase().includes('archive') || 
+      f.name.toLowerCase().includes('archiv') || 
+      f.specialUse === '\\Archive' ||
+      f.name.toLowerCase().includes('all mail')
+    );
+    
+    const uidString = uids.join(',');
+    
+    if (archiveFolder) {
+      await this.client.messageMove({ uid: uidString }, archiveFolder.path, { uid: true });
+      console.log(`[ImapClient] Moved ${uids.length} uids to archive folder: ${archiveFolder.path}`);
+    } else {
+      console.warn(`[ImapClient] No archive folder found for ${this.config.user}. Setting \Archive flag manually.`);
+      await this.client.messageFlagsAdd({ uid: uidString }, ["Archive"], { uid: true });
     }
   }
 

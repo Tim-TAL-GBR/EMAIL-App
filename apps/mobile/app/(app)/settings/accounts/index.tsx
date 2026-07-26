@@ -143,7 +143,7 @@ export default function AccountsSettingsScreen() {
     setIsLoadingFolders(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       const res = await fetch(`${API_URL}/api/inboxes/${account.id}/folders`, {
         headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
@@ -380,7 +380,7 @@ export default function AccountsSettingsScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Nicht eingeloggt');
 
-      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       const response = await fetch(`${backendUrl}/api/inboxes/${account.id}/credentials`, {
         method: 'PATCH',
         headers: {
@@ -440,8 +440,8 @@ export default function AccountsSettingsScreen() {
 
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        // Use EXPO_PUBLIC_BACKEND_URL or fallback to localhost
-        const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+        // Use EXPO_PUBLIC_SERVER_URL or fallback to localhost
+        const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
         fetch(`${backendUrl}/api/inboxes/${account.id}/reconnect`, {
           method: 'POST',
           headers: {
@@ -461,7 +461,7 @@ export default function AccountsSettingsScreen() {
     if (!account || !newMemberEmail.trim()) return;
     setIsSubmittingMember(true);
     try {
-      const response = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/inboxes/${account.id}/members/invite`, {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_SERVER_URL}/api/inboxes/${account.id}/members/invite`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -487,7 +487,7 @@ export default function AccountsSettingsScreen() {
   const handleChangeMemberRole = async (memberId: string, role: string) => {
     if (!account) return;
     try {
-      const response = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/inboxes/${account.id}/members/${memberId}`, {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_SERVER_URL}/api/inboxes/${account.id}/members/${memberId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -509,7 +509,7 @@ export default function AccountsSettingsScreen() {
       { text: 'Abbrechen', style: 'cancel' },
       { text: 'Entfernen', style: 'destructive', onPress: async () => {
         try {
-          const response = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/inboxes/${account.id}/members/${memberId}`, {
+          const response = await fetch(`${process.env.EXPO_PUBLIC_SERVER_URL}/api/inboxes/${account.id}/members/${memberId}`, {
             method: 'DELETE',
             headers: {
               'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
@@ -1083,7 +1083,7 @@ export default function AccountsSettingsScreen() {
       { text: 'Abbrechen', style: 'cancel' },
       { text: 'Löschen', style: 'destructive', onPress: async () => {
           try {
-            const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+            const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
             const { data: { session } } = await supabase.auth.getSession();
             const response = await fetch(`${backendUrl}/api/inboxes/${account.id}`, {
               method: 'DELETE',

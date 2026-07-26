@@ -32,6 +32,7 @@ export interface Email {
   is_read: boolean;
   is_starred: boolean;
   is_deleted: boolean;
+  is_archived?: boolean;
   last_activity_at?: string;
   received_at: string;
   created_at: string;
@@ -144,6 +145,8 @@ interface EmailState {
   archiveEmail: (emailId: string) => Promise<void>;
   /** Delete an email */
   deleteEmail: (emailId: string) => Promise<void>;
+  /** Perform bulk action on multiple emails */
+  bulkActionEmails: (emailIds: string[], action: 'read' | 'archive' | 'delete') => Promise<void>;
 
   /** Pinned threads for the sidebar */
   pinnedThreads: { thread_id: string, subject: string, created_at: string }[];
@@ -172,7 +175,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const fetchId = Date.now();
     set({ isLoading: true, error: null, _currentFetchId: fetchId });
 
-    if (contextType !== 'assigned' && (!inboxIds || inboxIds.length === 0)) {
+    if (contextType !== 'assigned' && contextType !== 'global_inbox' && (!inboxIds || inboxIds.length === 0)) {
       set({ emails: [], threads: [], isLoading: false });
       return;
     }
@@ -193,7 +196,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           .from('emails')
           .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
           .eq('email_assignments.assigned_to', userId);
-      } else {
+      } else if (contextType !== 'global_inbox') {
         query = query.in('inbox_id', inboxIds);
       }
       
@@ -238,7 +241,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     if (get().isLoadingMore || !get().hasMoreEmails) return;
     set({ isLoadingMore: true, error: null });
 
-    if (contextType !== 'assigned' && (!inboxIds || inboxIds.length === 0)) {
+    if (contextType !== 'assigned' && contextType !== 'global_inbox' && (!inboxIds || inboxIds.length === 0)) {
       set({ isLoadingMore: false });
       return;
     }
@@ -260,7 +263,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           .from('emails')
           .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
           .eq('email_assignments.assigned_to', userId);
-      } else {
+      } else if (contextType !== 'global_inbox') {
         query = query.in('inbox_id', inboxIds);
       }
       
@@ -507,6 +510,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       if (state.emails.some((e) => e.id === email.id)) {
         return state;
       }
+      // Don't add deleted or archived emails via realtime
+      if (email.is_deleted || email.is_archived) {
+        return state;
+      }
       const emails = [email, ...state.emails];
       return {
         emails,
@@ -517,6 +524,30 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   updateEmail: (updatedEmail) => {
     set((state) => {
+      // If the update marks an email as deleted or archived, remove it from the view
+      if (updatedEmail.is_deleted === true || updatedEmail.is_archived === true) {
+        const emails = state.emails.filter(e => e.id !== updatedEmail.id);
+        const threads = state.threads.map(t => {
+          if (t.emails.some(e => e.id === updatedEmail.id)) {
+            const newEmails = t.emails.filter(e => e.id !== updatedEmail.id);
+            if (newEmails.length === 0) return null;
+            return {
+              ...t,
+              emails: newEmails,
+              latestEmail: newEmails[newEmails.length - 1],
+              is_read: newEmails.every(e => e.is_read),
+              is_starred: newEmails.some(e => e.is_starred),
+            };
+          }
+          return t;
+        }).filter(Boolean) as Thread[];
+        return {
+          emails,
+          threads,
+          activeEmailId: state.activeEmailId === updatedEmail.id ? null : state.activeEmailId,
+        };
+      }
+
       const emails = state.emails.map((e) =>
         e.id === updatedEmail.id ? { ...e, ...updatedEmail } : e,
       );
@@ -570,7 +601,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     // Optimistic removal
     get().removeEmail(emailId);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       const response = await fetch(`${baseUrl}/api/emails/${emailId}/archive`, {
         method: 'POST',
         headers: {
@@ -592,7 +623,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     
     get().removeEmail(emailId);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
       const response = await fetch(`${baseUrl}/api/emails/${emailId}`, {
         method: 'DELETE',
         headers: {
@@ -604,6 +635,70 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       console.error(e);
       // Revert optimistic update
       set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
+    }
+  },
+
+  bulkActionEmails: async (emailIds, action) => {
+    const originalEmails = get().emails;
+    const originalThreads = get().threads;
+    const originalActive = get().activeEmailId;
+
+    // Optimistic update
+    set((state) => {
+      let emails = [...state.emails];
+      if (action === 'delete' || action === 'archive') {
+        emails = emails.filter((e) => !emailIds.includes(e.id));
+      } else if (action === 'read') {
+        emails = emails.map((e) => emailIds.includes(e.id) ? { ...e, is_read: true } : e);
+      }
+
+      let threads = state.threads.map(t => {
+        if (action === 'delete' || action === 'archive') {
+          const newEmails = t.emails.filter(e => !emailIds.includes(e.id));
+          if (newEmails.length === 0) return null;
+          return {
+            ...t,
+            emails: newEmails,
+            latestEmail: newEmails[newEmails.length - 1],
+            is_read: newEmails.every(e => e.is_read),
+            is_starred: newEmails.some(e => e.is_starred),
+          };
+        } else if (action === 'read') {
+          if (t.emails.some(e => emailIds.includes(e.id))) {
+            const newEmails = t.emails.map(e => emailIds.includes(e.id) ? { ...e, is_read: true } : e);
+            return {
+              ...t,
+              emails: newEmails,
+              latestEmail: newEmails[newEmails.length - 1],
+              is_read: newEmails.every(e => e.is_read),
+            };
+          }
+        }
+        return t;
+      }).filter(Boolean) as Thread[];
+
+      return {
+        emails,
+        threads,
+        activeEmailId: originalActive && emailIds.includes(originalActive) && (action === 'delete' || action === 'archive') ? null : originalActive,
+      };
+    });
+
+    try {
+      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+      const response = await fetch(`${baseUrl}/api/emails/bulk-action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ emailIds, action })
+      });
+      if (!response.ok) throw new Error('Failed to perform bulk action');
+    } catch (e) {
+      console.error(e);
+      set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
+      throw e;
     }
   },
 

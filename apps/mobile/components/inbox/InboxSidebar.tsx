@@ -289,10 +289,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
           activeOpacity={0.7}
           onPress={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
         >
-          <View style={styles.otherUserAvatars}>
-            <View style={[styles.miniAvatar, { backgroundColor: '#00B388', zIndex: 2 }]}><Text style={styles.miniAvatarText}>TU</Text></View>
-            <View style={[styles.miniAvatar, { backgroundColor: '#FFB800', marginLeft: -8, zIndex: 1 }]}><Text style={styles.miniAvatarText}>E</Text></View>
-          </View>
+
           <Avatar 
             name={user?.user_metadata?.display_name || user?.email || 'User'} 
             size={24} 
