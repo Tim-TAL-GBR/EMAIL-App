@@ -380,10 +380,14 @@ emailRouter.delete("/:emailId", async (req, res) => {
     }
 
     if (email.imap_uid) {
-      const { mailManager } = await import("../mail/MailManager.js");
-      const client = mailManager.getClient(email.inbox_id);
-      if (client) {
-        await client.deleteMessage(email.imap_uid);
+      try {
+        const { mailManager } = await import("../mail/MailManager.js");
+        const client = mailManager.getClient(email.inbox_id);
+        if (client) {
+          await client.deleteMessage(email.imap_uid);
+        }
+      } catch (imapErr) {
+        console.error(`[EmailRoutes] IMAP delete failed for ${emailId}:`, imapErr);
       }
     }
 

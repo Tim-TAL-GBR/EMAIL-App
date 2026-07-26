@@ -617,10 +617,6 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   },
 
   deleteEmail: async (emailId) => {
-    const originalEmails = get().emails;
-    const originalThreads = get().threads;
-    const originalActive = get().activeEmailId;
-    
     get().removeEmail(emailId);
     try {
       const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
@@ -632,9 +628,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       });
       if (!response.ok) throw new Error('Failed to delete');
     } catch (e) {
-      console.error(e);
-      // Revert optimistic update
-      set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
+      console.error('[deleteEmail] Error:', e);
     }
   },
 
