@@ -357,33 +357,36 @@ export class ImapClient {
   public async deleteMessage(uid: number, mailbox: string = "INBOX"): Promise<void> {
     if (!this.isConnected) await this.connect();
     
-    // Ensure we are in the correct mailbox
     if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
       await this.client.mailboxOpen(mailbox);
     }
     
-    // Add \Deleted flag
-    await this.client.messageFlagsAdd({ uid }, ["\\Deleted"], { uid: true });
-    
-    // Most servers support moving to Trash or expunging.
-    // For now, we just set the flag.
-    console.log(`[ImapClient] Marked uid ${uid} as deleted in ${mailbox}`);
+    if (this.folderMap.trash) {
+      await this.client.messageMove({ uid }, this.folderMap.trash, { uid: true });
+      console.log(`[ImapClient] Moved uid ${uid} to trash: ${this.folderMap.trash}`);
+    } else {
+      await this.client.messageFlagsAdd({ uid }, ["\\Deleted"], { uid: true });
+      console.log(`[ImapClient] No trash folder. Marked uid ${uid} with \\Deleted flag`);
+    }
   }
 
   public async deleteMessages(uids: number[], mailbox: string = "INBOX"): Promise<void> {
     if (!uids.length) return;
     if (!this.isConnected) await this.connect();
     
-    // Ensure we are in the correct mailbox
     if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
       await this.client.mailboxOpen(mailbox);
     }
     
-    // Add \Deleted flag for all uids at once
     const uidString = uids.join(',');
-    await this.client.messageFlagsAdd({ uid: uidString }, ["\\Deleted"], { uid: true });
     
-    console.log(`[ImapClient] Marked ${uids.length} uids as deleted in ${mailbox}`);
+    if (this.folderMap.trash) {
+      await this.client.messageMove({ uid: uidString }, this.folderMap.trash, { uid: true });
+      console.log(`[ImapClient] Moved ${uids.length} uids to trash: ${this.folderMap.trash}`);
+    } else {
+      await this.client.messageFlagsAdd({ uid: uidString }, ["\\Deleted"], { uid: true });
+      console.log(`[ImapClient] No trash folder. Marked ${uids.length} uids with \\Deleted flag`);
+    }
   }
 
   public async archiveMessage(uid: number, mailbox: string = "INBOX"): Promise<void> {
