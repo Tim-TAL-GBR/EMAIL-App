@@ -29,28 +29,28 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const selectedThread = threads.find(t => t.id === threadId);
 
   useEffect(() => {
-    if (selectedThread && selectedThread.latestEmail) {
-      const unreadEmailIds = selectedThread.emails.filter(e => !e.is_read).map(e => e.id);
-      if (unreadEmailIds.length > 0) {
-        for (const id of unreadEmailIds) {
-          await markAsRead(id);
+    const run = async () => {
+      if (selectedThread && selectedThread.latestEmail) {
+        const unreadEmailIds = selectedThread.emails.filter(e => !e.is_read).map(e => e.id);
+        if (unreadEmailIds.length > 0) {
+          for (const id of unreadEmailIds) {
+            await markAsRead(id);
+          }
+        }
+
+        loadAssignments(selectedThread.latestEmail.id);
+        
+        const teamId = selectedThread.latestEmail.team_id;
+        if (teamId) {
+          fetchLabels(teamId);
+        } else {
+          supabase.from('inboxes').select('team_id').eq('id', selectedThread.latestEmail.inbox_id).single().then(({data}) => {
+            if (data?.team_id) fetchLabels(data.team_id);
+          });
         }
       }
-
-      loadAssignments(selectedThread.latestEmail.id);
-      
-      // Fallback team_id fetching if it's available (assuming first team for now if missing)
-      // For a real app, thread.team_id or inbox.team_id should be used
-      const teamId = selectedThread.latestEmail.team_id;
-      if (teamId) {
-        fetchLabels(teamId);
-      } else {
-        // Fallback: get the team from the DB directly if missing in state
-        supabase.from('inboxes').select('team_id').eq('id', selectedThread.latestEmail.inbox_id).single().then(({data}) => {
-          if (data?.team_id) fetchLabels(data.team_id);
-        });
-      }
-    }
+    };
+    run();
   }, [threadId]);
 
   const loadAssignments = async (emailId: string) => {
