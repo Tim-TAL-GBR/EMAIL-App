@@ -90,6 +90,22 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
     }
   };
 
+  const renderItem = useCallback(({ item }: { item: any }) => {
+    if (item.type === 'email') {
+      const lastEmailId = [...timeline].reverse().find(i => i.type === 'email')?.id;
+      const isLastEmail = item.id === lastEmailId;
+      return <EmailDetail email={item.data as any} initiallyCollapsed={!isLastEmail} onStatusChange={(status) => onEmailStatusChange(item.data.id, status)} />
+    } else if (item.type === 'draft') {
+      return (
+        <View style={styles.draftContainer}>
+          <DraftListItem draft={item.data as any} onPress={() => onDraftPress && onDraftPress(item.data)} />
+        </View>
+      )
+    } else {
+      return <ChatMessage comment={item.data as any} />
+    }
+  }, [timeline, onEmailStatusChange, onDraftPress]);
+
   if (isLoading && comments.length === 0) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -108,21 +124,7 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
         ref={flatListRef}
         data={timeline} // chronological order
         keyExtractor={(item) => item.id}
-        renderItem={useCallback(({ item }: { item: any }) => {
-          if (item.type === 'email') {
-            const lastEmailId = [...timeline].reverse().find(i => i.type === 'email')?.id;
-            const isLastEmail = item.id === lastEmailId;
-            return <EmailDetail email={item.data as any} initiallyCollapsed={!isLastEmail} onStatusChange={(status) => onEmailStatusChange(item.data.id, status)} />
-          } else if (item.type === 'draft') {
-            return (
-              <View style={styles.draftContainer}>
-                <DraftListItem draft={item.data as any} onPress={() => onDraftPress && onDraftPress(item.data)} />
-              </View>
-            )
-          } else {
-            return <ChatMessage comment={item.data as any} />
-          }
-        }, [timeline, onEmailStatusChange, onDraftPress])}
+        renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={headerComponent}
         ListEmptyComponent={
