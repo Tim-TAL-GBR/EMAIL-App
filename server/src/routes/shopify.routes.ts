@@ -5,8 +5,15 @@ import { getSupabaseAdmin } from "../services/auth.service.js";
 import { getShopifyForTeam, invalidateShopifyForTeam } from "../services/shopify.service.js";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { connection as redisConnection } from "../services/queue.service.js";
+import { encrypt, decrypt } from "../utils/encryption.js";
 
 export const shopifyRouter: Router = Router();
+
+// Decrypt access_token on a connection object (safe no-op if already plaintext)
+function decryptConn<T extends { access_token?: string }>(conn: T | null): T | null {
+  if (conn?.access_token) conn.access_token = decrypt(conn.access_token);
+  return conn;
+}
 
 // ---------------------------------------------------------------------------
 // App Configuration – save / retrieve per-team API credentials
@@ -52,7 +59,7 @@ shopifyRouter.post("/app-config", requireAuth, async (req, res) => {
     .upsert({
       team_id: teamId,
       api_key: apiKey,
-      api_secret: apiSecret,
+      api_secret: encrypt(apiSecret),
       app_host_name: appHostName || null,
     }, { onConflict: "team_id" })
     .select("id, team_id, api_key, app_host_name")
@@ -179,7 +186,7 @@ shopifyRouter.get("/auth/callback", async (req, res) => {
       await supabase.from("shopify_connections").upsert({
         team_id: teamId,
         shop_domain: session.shop,
-        access_token: session.accessToken,
+        access_token: encrypt(session.accessToken),
         scopes: session.scope,
         primary_domain: primaryDomain,
       }, { onConflict: "team_id,shop_domain" });
@@ -239,7 +246,7 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: connection } = await supabase
+    const { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("*")
       .eq("team_id", teamId)
@@ -255,6 +262,7 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
           .maybeSingle();
         return fallback;
       });
+    const connection = decryptConn(rawConnection);
 
     if (!connection) {
       return res.status(404).json({ error: "No Shopify connection found for this team" });
@@ -336,12 +344,13 @@ shopifyRouter.get("/order/detail", requireAuth, async (req, res) => {
 
   try {
     const supabase = getSupabaseAdmin();
-    const { data: connection } = await supabase
+    const { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("*")
       .eq("team_id", teamId)
       .limit(1)
       .maybeSingle();
+    const connection = decryptConn(rawConnection);
 
     if (!connection) {
       return res.status(404).json({ error: "No Shopify connection found for this team" });
@@ -462,7 +471,8 @@ shopifyRouter.post("/order/cancel", requireAuth, async (req, res) => {
     if (shopDomain) {
       connectionQuery = connectionQuery.eq("shop_domain", shopDomain);
     }
-    const { data: connection } = await connectionQuery.limit(1).single();
+    const { data: rawConnection } = await connectionQuery.limit(1).single();
+    const connection = decryptConn(rawConnection);
 
     if (!connection) {
       return res.status(404).json({ error: "No Shopify connection found for this team" });
@@ -517,12 +527,13 @@ shopifyRouter.post("/order/update", requireAuth, async (req, res) => {
 
   try {
     const supabase = getSupabaseAdmin();
-    const { data: connection } = await supabase
+    const { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("*")
       .eq("team_id", teamId)
       .limit(1)
       .maybeSingle();
+    const connection = decryptConn(rawConnection);
 
     if (!connection) {
       return res.status(404).json({ error: "No Shopify connection found" });
@@ -616,11 +627,12 @@ shopifyRouter.get("/order-communication", async (req, res) => {
 
   try {
     const supabase = getSupabaseAdmin();
-    let { data: connection } = await supabase
+    let { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("team_id, access_token, shop_domain")
       .eq("shop_domain", shopDomain)
       .single();
+    let connection = decryptConn(rawConnection);
 
     if (!connection) {
       const { data: byPrimary } = await supabase
@@ -628,7 +640,7 @@ shopifyRouter.get("/order-communication", async (req, res) => {
         .select("team_id, access_token, shop_domain")
         .eq("primary_domain", shopDomain)
         .single();
-      connection = byPrimary;
+      connection = decryptConn(byPrimary);
     }
 
     if (!connection) {
@@ -709,12 +721,13 @@ export async function syncEmailToShopifyOrders(opts: {
 }) {
   try {
     const supabase = getSupabaseAdmin();
-    const { data: connection } = await supabase
+    const { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("*")
       .eq("team_id", opts.teamId)
       .limit(1)
       .maybeSingle();
+    const connection = decryptConn(rawConnection);
 
     if (!connection) return;
 
