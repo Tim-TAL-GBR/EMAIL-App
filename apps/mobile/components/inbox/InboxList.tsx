@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, SectionList, RefreshControl, ScrollView, Text } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, StyleSheet, SectionList, RefreshControl, ScrollView, Text, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { Colors, Spacing, FontSize, FontWeight } from '../../lib/constants';
@@ -15,6 +15,7 @@ import { PopoverMenu } from '../ui/PopoverMenu';
 import { Alert, LayoutRectangle } from 'react-native';
 import { useLabelStore } from '../../stores/useLabelStore';
 import { useEmailStore } from '../../stores/emailStore';
+import type { Thread } from '../../stores/emailStore';
 import { useInboxes } from '../../hooks/useInboxes';
 import { EmailAssignment } from '../email/EmailAssignment';
 import { supabase } from '../../lib/supabase';
@@ -47,8 +48,6 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     return [];
   }, [inboxes, activeContextType, activeContextId]);
 
-  console.log('[DEBUG] activeContextType:', activeContextType, 'activeContextId:', activeContextId, 'computed inboxIds:', inboxIds);
-
   const labelId = activeContextType === 'label' ? activeContextId : undefined;
   const { threads, isLoading, isLoadingMore, hasMoreEmails, fetchMoreEmails, refetch } = useEmails(inboxIds, labelId, activeContextType, activeFilter);
   const { drafts, isLoading: draftsLoading, refetch: refetchDrafts } = useDraftsList(inboxIds);
@@ -69,6 +68,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   const [ruleComposerVisible, setRuleComposerVisible] = useState(false);
   const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>();
   const [isSyncing, setIsSyncing] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   const triggerSync = async () => {
     if (!activeContextId || activeContextType !== 'private_inbox') return;
@@ -148,7 +148,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
 
   const filteredThreads = (threads ?? []).filter(t => {
     if (t.latestEmail.snooze_until && new Date(t.latestEmail.snooze_until) > new Date()) {
-      return false; // Hide if snooze is still active
+      return false;
     }
 
     const assignments = t.latestEmail.email_assignments || [];
@@ -164,24 +164,86 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
       }
     }
 
-    if (!activeFilter || activeFilter === 'all' || activeFilter === 'drafts') return true;
+    if (!activeFilter || activeFilter === 'all' || activeFilter === 'drafts') {
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        const subjectMatch = t.subject?.toLowerCase().includes(q);
+        const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+        if (!subjectMatch && !fromMatch) return false;
+      }
+      return true;
+    }
     
     if (activeFilter === 'needs_attention') {
       if (t.latestEmail.status === 'done') return false;
-      return !isAssignedToAnyone || isAssignedToMe;
+      const passes = !isAssignedToAnyone || isAssignedToMe;
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        const subjectMatch = t.subject?.toLowerCase().includes(q);
+        const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+        return passes && (subjectMatch || fromMatch);
+      }
+      return passes;
     }
     
     if (activeFilter === 'assigned_to_me') {
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        const subjectMatch = t.subject?.toLowerCase().includes(q);
+        const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+        return isAssignedToMe && (subjectMatch || fromMatch);
+      }
       return isAssignedToMe;
     }
     if (activeFilter === 'assigned_to_others') {
-      return isAssignedToAnyone && !isAssignedToMe;
+      const passes = isAssignedToAnyone && !isAssignedToMe;
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        const subjectMatch = t.subject?.toLowerCase().includes(q);
+        const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+        return passes && (subjectMatch || fromMatch);
+      }
+      return passes;
     }
-    if (activeFilter === 'sent') return t.latestEmail.direction === 'outbound';
-    if (activeFilter === 'trash') return t.latestEmail.is_deleted === true;
-    if (activeFilter === 'archived') return t.latestEmail.is_archived === true;
+    if (activeFilter === 'sent') {
+      const passes = t.latestEmail.direction === 'outbound';
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        const subjectMatch = t.subject?.toLowerCase().includes(q);
+        const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+        return passes && (subjectMatch || fromMatch);
+      }
+      return passes;
+    }
+    if (activeFilter === 'trash') {
+      const passes = t.latestEmail.is_deleted === true;
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        const subjectMatch = t.subject?.toLowerCase().includes(q);
+        const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+        return passes && (subjectMatch || fromMatch);
+      }
+      return passes;
+    }
+    if (activeFilter === 'archived') {
+      const passes = t.latestEmail.is_archived === true;
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        const subjectMatch = t.subject?.toLowerCase().includes(q);
+        const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+        return passes && (subjectMatch || fromMatch);
+      }
+      return passes;
+    }
     
-    return t.latestEmail.status === activeFilter;
+    const passes = t.latestEmail.status === activeFilter;
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      const subjectMatch = t.subject?.toLowerCase().includes(q);
+      const fromMatch = t.latestEmail.from_address?.toLowerCase().includes(q);
+      return passes && (subjectMatch || fromMatch);
+    }
+    return passes;
   });
 
   const handleEmailPress = (id: string) => {
@@ -245,6 +307,23 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
           </TouchableOpacity>
         </View>
       )}
+      <View style={styles.searchContainer}>
+        <Feather name="search" size={16} color={Colors.textTertiary} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Betreb oder Absender suchen..."
+          placeholderTextColor={Colors.textTertiary}
+          value={searchText}
+          onChangeText={setSearchText}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+        />
+        {searchText.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearButton}>
+            <Feather name="x" size={16} color={Colors.textTertiary} />
+          </TouchableOpacity>
+        )}
+      </View>
       <SectionList
         sections={sections as any}
         keyExtractor={(item: any) => item.id || item.thread_id || item.latestEmail?.id || `fallback-${item.subject}`}
@@ -437,6 +516,15 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
             emailId={contextMenuThread.latestEmail.id}
             inboxId={contextMenuThread.latestEmail.inbox_id}
             onAssign={handleAssignInList}
+            onUnassign={async () => {
+              await supabase
+                .from('email_assignments')
+                .delete()
+                .eq('email_id', contextMenuThread!.latestEmail.id)
+                .eq('assigned_to', user?.id);
+              setContextAssignVisible(false);
+              handleRefresh();
+            }}
             externalVisible={contextAssignVisible}
             onCloseExternal={() => setContextAssignVisible(false)}
           />
@@ -508,5 +596,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    marginHorizontal: Spacing.sm,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.sm,
+    height: 36,
+  },
+  searchIcon: {
+    marginRight: Spacing.xs,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.text,
+    padding: 0,
+  },
+  clearButton: {
+    padding: Spacing.xs,
+    marginLeft: Spacing.xs,
   }
 });

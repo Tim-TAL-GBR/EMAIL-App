@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ContextType = 'global_inbox' | 'team' | 'private_inbox' | null;
+export type ContextType = 'global_inbox' | 'team' | 'private_inbox' | 'label' | null;
 export type FilterType = 
   | 'assigned_to_me' 
   | 'assigned_to_others' 

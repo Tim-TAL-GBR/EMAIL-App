@@ -22,7 +22,7 @@ interface EmailViewProps {
 }
 
 export function EmailView({ emailId: threadId }: EmailViewProps) {
-  const { threads, updateEmailStatus, archiveEmail, deleteEmail, snoozeEmail, bulkActionEmails, pinnedThreads, togglePinThread } = useEmailStore();
+  const { threads, updateEmailStatus, archiveEmail, deleteEmail, snoozeEmail, markAsRead, pinnedThreads, togglePinThread } = useEmailStore();
   const [assignments, setAssignments] = useState<any[]>([]);
   const { labels, addLabelToEmail, fetchLabels } = useLabelStore();
 
@@ -32,7 +32,9 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
     if (selectedThread && selectedThread.latestEmail) {
       const unreadEmailIds = selectedThread.emails.filter(e => !e.is_read).map(e => e.id);
       if (unreadEmailIds.length > 0) {
-        bulkActionEmails(unreadEmailIds, 'read');
+        for (const id of unreadEmailIds) {
+          await markAsRead(id);
+        }
       }
 
       loadAssignments(selectedThread.latestEmail.id);
@@ -293,7 +295,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
         <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
           <ShopifyCustomerCard 
             email={selectedThread.latestEmail.from_address} 
-            detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]} // simple regex for #1234
+            teamId={selectedThread.latestEmail.team_id}
+            detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
           />
         </View>
       )}
