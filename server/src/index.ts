@@ -13,6 +13,7 @@ import { commentRouter } from "./routes/comment.routes.js";
 import { templateRouter } from "./routes/template.routes.js";
 import { pushRouter } from "./routes/push.routes.js";
 import { teamRouter } from "./routes/team.routes.js";
+import { shopifyRouter } from "./routes/shopify.routes.js";
 import { startEmailWorker } from "./services/queue.service.js";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,7 @@ app.use("/api/comments", commentRouter);
 app.use("/api/templates", templateRouter);
 app.use("/api/push", pushRouter);
 app.use("/api/teams", teamRouter);
+app.use("/api/shopify", shopifyRouter);
 
 // ---------------------------------------------------------------------------
 // HTTP + WebSocket Server
