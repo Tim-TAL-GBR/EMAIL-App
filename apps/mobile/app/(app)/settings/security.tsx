@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
 import { useAuthStore } from '../../../stores/authStore';
-import { supabase } from '../../../lib/supabase';
-
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
 
 export default function SecuritySettingsScreen() {
   const { user, updatePassword, resetPasswordForEmail } = useAuthStore();
@@ -45,44 +42,6 @@ export default function SecuritySettingsScreen() {
     } else {
       Alert.alert('Erfolg', 'Anweisungen zum Zurücksetzen des Passworts wurden gesendet.');
     }
-  };
-
-  const handleDeleteAccount = async () => {
-    const doDelete = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${API_URL}/api/users/me`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
-        
-        // Sign out to clear local state
-        await supabase.auth.signOut();
-      } catch (e: any) {
-        Alert.alert('Fehler beim Löschen des Kontos', e.message);
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('Möchtest du dein Konto und alle damit verbundenen Daten wirklich endgültig löschen? Dies kann nicht rückgängig gemacht werden!')) {
-        doDelete();
-      }
-      return;
-    }
-
-    Alert.alert(
-      'Konto endgültig löschen',
-      'Möchtest du dein Konto und alle damit verbundenen Daten wirklich endgültig löschen? Dies kann nicht rückgängig gemacht werden!',
-      [
-        { text: 'Abbrechen', style: 'cancel' },
-        { text: 'Konto löschen', style: 'destructive', onPress: doDelete }
-      ]
-    );
   };
 
   return (
@@ -257,7 +216,7 @@ export default function SecuritySettingsScreen() {
                   Lösche dein TeamMail-Konto ({user?.user_metadata?.display_name || user?.email}) und alle damit verbundenen Daten dauerhaft.
                 </Text>
               </View>
-              <TouchableOpacity onPress={handleDeleteAccount}>
+              <TouchableOpacity>
                 <Text style={styles.dangerText}>Löschen</Text>
               </TouchableOpacity>
             </View>

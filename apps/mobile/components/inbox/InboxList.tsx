@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, SectionList, RefreshControl, ScrollView, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
-import { Colors, Spacing, FontSize, FontWeight, FontFamily } from '../../lib/constants';
+import { Colors, Spacing, FontSize, FontWeight } from '../../lib/constants';
 import { useEmails } from '../../hooks/useEmails';
 import { useDraftsList } from '../../hooks/useDraftsList';
 import { useAuthStore } from '../../stores/authStore';
@@ -69,8 +69,6 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   const [ruleComposerVisible, setRuleComposerVisible] = useState(false);
   const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>();
   const [isSyncing, setIsSyncing] = useState(false);
-  const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
-  const [isBulkActionRunning, setIsBulkActionRunning] = useState(false);
 
   const triggerSync = async () => {
     if (!activeContextId || activeContextType !== 'private_inbox') return;
@@ -148,24 +146,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     handleRefresh();
   };
 
-  const handleToggleSelect = (thread: Thread) => {
-    setSelectedThreadIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(thread.id)) {
-        newSet.delete(thread.id);
-      } else {
-        newSet.add(thread.id);
-      }
-      return newSet;
-    });
-  };
-
   const filteredThreads = (threads ?? []).filter(t => {
-    // Always hide deleted/archived emails from non-trash/non-archived views
-    if (activeFilter !== 'trash' && activeFilter !== 'archived') {
-      if (t.latestEmail.is_deleted || t.latestEmail.is_archived) return false;
-    }
-
     if (t.latestEmail.snooze_until && new Date(t.latestEmail.snooze_until) > new Date()) {
       return false; // Hide if snooze is still active
     }
@@ -203,53 +184,11 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     return t.latestEmail.status === activeFilter;
   });
 
-  const handleSelectAll = () => {
-    if (selectedThreadIds.size === filteredThreads.length && filteredThreads.length > 0) {
-      setSelectedThreadIds(new Set());
-    } else {
-      setSelectedThreadIds(new Set(filteredThreads.map(t => t.id)));
-    }
-  };
-
-  const handleBulkAction = async (action: 'read' | 'archive' | 'delete') => {
-    if (selectedThreadIds.size === 0) return;
-    setIsBulkActionRunning(true);
-    
-    try {
-      // Find all latestEmail IDs for the selected threads
-      const emailIds = Array.from(selectedThreadIds)
-        .map(threadId => threads?.find(t => t.id === threadId)?.latestEmail.id)
-        .filter(Boolean) as string[];
-
-      if (emailIds.length > 0) {
-        const { bulkActionEmails } = useEmailStore.getState();
-        await bulkActionEmails(emailIds, action);
-      }
-      
-      setSelectedThreadIds(new Set()); // clear selection
-      if (action !== 'read') {
-        handleRefresh();
-      }
-    } catch (e: any) {
-      Alert.alert('Fehler', 'Es ist ein Fehler aufgetreten: ' + e.message);
-    } finally {
-      setIsBulkActionRunning(false);
-    }
-  };
-
-
-
-  const handleEmailPress = (threadId: string) => {
-    if (selectedThreadIds.size > 0) {
-      const thread = threads?.find(t => t.id === threadId);
-      if (thread) handleToggleSelect(thread);
-      return;
-    }
-    
+  const handleEmailPress = (id: string) => {
     if (isDesktop) {
-      setEmailId(threadId);
+      setEmailId(id);
     } else {
-      router.push(`/email/${threadId}`);
+      router.push(`/email/${id}`);
     }
   };
 
@@ -275,35 +214,18 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     if (activeFilter === 'drafts') {
       return [{ title: 'Drafts', data: drafts || [] }];
     }
-    
-    const pinned: typeof filteredThreads = [];
-    const unpinned: typeof filteredThreads = [];
-    
-    filteredThreads.forEach(thread => {
-      const isPinned = pinnedThreads.some(p => p.thread_id === thread.id);
-      if (isPinned) pinned.push(thread);
-      else unpinned.push(thread);
-    });
-    
-    const result = [];
-    if (pinned.length > 0) {
-      result.push({ title: 'Angepinnt', data: pinned });
-    }
-    
-    const grouped = unpinned.reduce((acc, thread) => {
+    const grouped = filteredThreads.reduce((acc, thread) => {
       const title = getSectionTitle(thread.latestEmail?.received_at);
       if (!acc[title]) acc[title] = [];
       acc[title].push(thread);
       return acc;
     }, {} as Record<string, typeof filteredThreads>);
 
-    const unpinnedSections = Object.keys(grouped).map(title => ({
+    return Object.keys(grouped).map(title => ({
       title,
       data: grouped[title]
     }));
-    
-    return [...result, ...unpinnedSections];
-  }, [filteredThreads, drafts, activeFilter, pinnedThreads]);
+  }, [filteredThreads, drafts, activeFilter]);
 
   return (
     <View style={styles.container}>
@@ -323,18 +245,6 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
           </TouchableOpacity>
         </View>
       )}
-
-      {activeFilter !== 'drafts' && filteredThreads.length > 0 && (
-        <View style={styles.selectAllContainer}>
-          <TouchableOpacity onPress={handleSelectAll} style={styles.selectAllBtn}>
-            <Feather name={selectedThreadIds.size === filteredThreads.length ? "check-square" : "square"} size={16} color={Colors.textSecondary} />
-            <Text style={styles.selectAllText}>
-              {selectedThreadIds.size === filteredThreads.length ? 'Auswahl aufheben' : 'Alle auswählen'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       <SectionList
         sections={sections as any}
         keyExtractor={(item: any) => item.id || item.thread_id || item.latestEmail?.id || `fallback-${item.subject}`}
@@ -351,8 +261,6 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
             <EmailListItem 
               thread={item as any} 
               isSelected={item.id === selectedEmailId}
-              isMultiSelected={selectedThreadIds.has(item.id)}
-              onToggleSelect={handleToggleSelect}
               onPress={() => handleEmailPress(item.id)} 
               onContextMenu={handleContextMenu}
             />
@@ -393,41 +301,6 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
           style={styles.composeBtnInner}
         />
       </View>
-
-      {selectedThreadIds.size > 0 && (
-        <View style={styles.bulkActionBar}>
-          <View style={styles.bulkActionLeft}>
-            <TouchableOpacity onPress={() => setSelectedThreadIds(new Set())} style={styles.bulkActionCloseBtn}>
-              <Feather name="x" size={20} color={Colors.text} />
-            </TouchableOpacity>
-            <Text style={styles.bulkActionCount}>{selectedThreadIds.size} ausgewählt</Text>
-          </View>
-          <View style={styles.bulkActionRight}>
-            <TouchableOpacity 
-              style={styles.bulkActionIconBtn} 
-              onPress={() => handleBulkAction('read')}
-              disabled={isBulkActionRunning}
-            >
-              <Feather name="mail" size={20} color={Colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.bulkActionIconBtn} 
-              onPress={() => handleBulkAction('archive')}
-              disabled={isBulkActionRunning}
-            >
-              <Feather name="check-circle" size={20} color={Colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.bulkActionIconBtn} 
-              onPress={() => handleBulkAction('delete')}
-              disabled={isBulkActionRunning}
-            >
-              <Feather name="trash-2" size={20} color={Colors.error || '#EF4444'} />
-            </TouchableOpacity>
-            {isBulkActionRunning && <ActivityIndicator size="small" color={Colors.primary} style={{ marginLeft: 8 }} />}
-          </View>
-        </View>
-      )}
 
       <PopoverMenu
         visible={contextMenuVisible}
@@ -635,68 +508,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
-  },
-  selectAllContainer: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-    backgroundColor: '#FAFAFA',
-  },
-  selectAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  selectAllText: {
-    fontFamily: FontFamily,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  bulkActionBar: {
-    position: 'absolute',
-    bottom: Spacing.xl,
-    left: '50%',
-    transform: [{ translateX: -180 }],
-    width: 360,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  bulkActionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  bulkActionCloseBtn: {
-    padding: Spacing.xs,
-    backgroundColor: Colors.background,
-    borderRadius: 20,
-  },
-  bulkActionCount: {
-    fontFamily: FontFamily,
-    fontSize: FontSize.sm,
-    fontWeight: 'bold',
-    color: Colors.text,
-  },
-  bulkActionRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  bulkActionIconBtn: {
-    padding: Spacing.sm,
   }
 });

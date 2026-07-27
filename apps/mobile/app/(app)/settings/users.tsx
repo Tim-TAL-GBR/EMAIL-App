@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Alert, Modal, Platform
+  TextInput, ActivityIndicator, Alert, Modal
 } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
@@ -77,13 +77,12 @@ export default function UsersSettingsScreen() {
   const [invitePassword, setInvitePassword] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
   const [isInviting, setIsInviting] = useState(false);
-  const [inviteMessage, setInviteMessage] = useState<{type: 'error' | 'success', text: string} | null>(null);
 
-  // New states for editing and removing
+  // Role dropdown state
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
 
   const selectedTeam = teams.find(t => t.id === selectedTeamId);
-  const canManage = selectedTeamId === 'system_all_users' || (selectedTeam && ['owner', 'admin'].includes(selectedTeam.myRole));
+  const canManage = selectedTeam && ['owner', 'admin'].includes(selectedTeam.myRole);
 
   const filteredMembers = members.filter(m => {
     const q = searchQuery.toLowerCase();
@@ -93,20 +92,16 @@ export default function UsersSettingsScreen() {
     );
   });
 
-  useEffect(() => {
-    loadTeams();
-  }, []);
+  useEffect(() => { loadTeams(); }, []);
   useEffect(() => { if (selectedTeamId) loadMembers(selectedTeamId); }, [selectedTeamId]);
 
   const loadTeams = async () => {
-    setLoadingTeams(true);
     try {
       const data = await apiRequest('/api/teams');
       setTeams(data);
       if (data.length > 0) setSelectedTeamId(data[0].id);
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert('Fehler\n\n' + e.message);
-      else Alert.alert('Fehler', e.message);
+      Alert.alert('Fehler', e.message);
     } finally {
       setLoadingTeams(false);
     }
@@ -115,16 +110,10 @@ export default function UsersSettingsScreen() {
   const loadMembers = async (teamId: string) => {
     setLoadingMembers(true);
     try {
-      let data;
-      if (teamId === 'system_all_users') {
-        data = await apiRequest('/api/users');
-      } else {
-        data = await apiRequest(`/api/teams/${teamId}/members`);
-      }
+      const data = await apiRequest(`/api/teams/${teamId}/members`);
       setMembers(data);
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert('Fehler\n\n' + e.message);
-      else Alert.alert('Fehler', e.message);
+      Alert.alert('Fehler', e.message);
     } finally {
       setLoadingMembers(false);
     }
@@ -133,7 +122,6 @@ export default function UsersSettingsScreen() {
   const handleInvite = async () => {
     if (!selectedTeamId || !inviteEmail.trim() || !invitePassword.trim()) return;
     setIsInviting(true);
-    setInviteMessage(null);
     try {
       const res = await apiRequest(`/api/teams/${selectedTeamId}/members/create`, 'POST', {
         name: inviteName.trim(),
@@ -141,69 +129,32 @@ export default function UsersSettingsScreen() {
         password: invitePassword.trim(),
         role: inviteRole,
       });
-      setInviteMessage({ type: 'success', text: res.message || 'Erfolgreich angelegt!' });
-      setTimeout(() => {
-        setShowInviteModal(false);
-        setInviteName('');
-        setInviteEmail('');
-        setInvitePassword('');
-        setInviteRole('member');
-        setInviteMessage(null);
-      }, 1500);
+      Alert.alert('Erfolg ✓', res.message);
+      setShowInviteModal(false);
+      setInviteName('');
+      setInviteEmail('');
+      setInvitePassword('');
+      setInviteRole('member');
       loadMembers(selectedTeamId);
     } catch (e: any) {
-      setInviteMessage({ type: 'error', text: e.message || 'Fehler beim Anlegen' });
+      Alert.alert('Fehler', e.message);
     } finally {
       setIsInviting(false);
     }
   };
 
-  const handleChangeRole = async (memberId: string, role: string) => {
-    if (selectedTeamId === 'system_all_users') return; // Cannot change role here
+  const handleChangeRole = async (memberId: string, newRole: string) => {
+    if (!selectedTeamId) return;
     setEditingMemberId(null);
     try {
-      await apiRequest(`/api/teams/${selectedTeamId}/members/${memberId}`, 'PATCH', { role });
-      loadMembers(selectedTeamId);
+      await apiRequest(`/api/teams/${selectedTeamId}/members/${memberId}`, 'PATCH', { role: newRole });
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m));
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert('Fehler\n\n' + e.message);
-      else Alert.alert('Fehler', e.message);
+      Alert.alert('Fehler', e.message);
     }
   };
 
-  const handleAddToTeam = async (member: any, teamId: string) => {
-    setEditingMemberId(null);
-    try {
-      await apiRequest(`/api/teams/${teamId}/members/invite`, 'POST', {
-        email: member.email,
-        role: 'member'
-      });
-      if (Platform.OS === 'web') window.alert(`Erfolg\n\n${member.email} wurde erfolgreich zum ausgewählten Team hinzugefügt.`);
-      else Alert.alert('Erfolg', `${member.email} wurde erfolgreich zum ausgewählten Team hinzugefügt.`);
-    } catch (e: any) {
-      if (Platform.OS === 'web') window.alert('Fehler\n\n' + e.message);
-      else Alert.alert('Fehler', e.message);
-    }
-  };
-
-  const handleRemoveMember = async (member: Member) => {
-    if (selectedTeamId === 'system_all_users') return; // Cannot remove from team in system view
-    const doRemove = async () => {
-      try {
-        await apiRequest(`/api/teams/${selectedTeamId}/members/${member.id}`, 'DELETE');
-        setMembers(prev => prev.filter(m => m.id !== member.id));
-      } catch (e: any) {
-        if (Platform.OS === 'web') window.alert('Fehler\n\n' + e.message);
-        else Alert.alert('Fehler', e.message);
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Soll ${member.display_name || member.email} wirklich aus dem Team entfernt werden?`)) {
-        doRemove();
-      }
-      return;
-    }
-
+  const handleRemoveMember = (member: Member) => {
     Alert.alert(
       'Mitglied entfernen',
       `Soll ${member.display_name || member.email} wirklich aus dem Team entfernt werden?`,
@@ -211,42 +162,14 @@ export default function UsersSettingsScreen() {
         { text: 'Abbrechen', style: 'cancel' },
         {
           text: 'Entfernen', style: 'destructive',
-          onPress: doRemove
-        }
-      ]
-    );
-  };
-
-  const handleHardDeleteMember = (member: Member) => {
-    const doHardDelete = async () => {
-      try {
-        if (selectedTeamId === 'system_all_users') {
-          await apiRequest(`/api/users/${member.id}`, 'DELETE');
-        } else {
-          await apiRequest(`/api/teams/${selectedTeamId}/members/${member.id}?hard=true`, 'DELETE');
-        }
-        setMembers(prev => prev.filter(m => m.id !== member.id));
-      } catch (e: any) {
-        if (Platform.OS === 'web') window.alert('Fehler\n\n' + e.message);
-        else Alert.alert('Fehler', e.message);
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Soll das Konto von ${member.display_name || member.email} wirklich endgültig aus dem System gelöscht werden? Dies kann nicht rückgängig gemacht werden!`)) {
-        doHardDelete();
-      }
-      return;
-    }
-
-    Alert.alert(
-      'Konto endgültig löschen',
-      `Soll das Konto von ${member.display_name || member.email} wirklich endgültig aus dem System gelöscht werden? Dies kann nicht rückgängig gemacht werden!`,
-      [
-        { text: 'Abbrechen', style: 'cancel' },
-        {
-          text: 'Endgültig löschen', style: 'destructive',
-          onPress: doHardDelete
+          onPress: async () => {
+            try {
+              await apiRequest(`/api/teams/${selectedTeamId}/members/${member.id}`, 'DELETE');
+              setMembers(prev => prev.filter(m => m.id !== member.id));
+            } catch (e: any) {
+              Alert.alert('Fehler', e.message);
+            }
+          }
         }
       ]
     );
@@ -260,10 +183,7 @@ export default function UsersSettingsScreen() {
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Benutzer anlegen</Text>
-              <TouchableOpacity onPress={() => {
-                setShowInviteModal(false);
-                setInviteMessage(null);
-              }}>
+              <TouchableOpacity onPress={() => setShowInviteModal(false)}>
                 <Text style={styles.closeIcon}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -310,16 +230,6 @@ export default function UsersSettingsScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
-              {inviteMessage && (
-                <Text style={{ 
-                  marginTop: Spacing.md, 
-                  color: inviteMessage.type === 'error' ? '#F06A6A' : '#00B388', 
-                  fontFamily: FontFamily, 
-                  fontSize: FontSize.sm 
-                }}>
-                  {inviteMessage.text}
-                </Text>
-              )}
             </View>
             <View style={styles.modalFooter}>
               <TouchableOpacity
@@ -343,27 +253,17 @@ export default function UsersSettingsScreen() {
       {/* Sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.sidebarContent}>
-          <View style={{ padding: Spacing.md, paddingBottom: 0 }}>
-            <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, fontWeight: 'bold', color: Colors.textTertiary, textTransform: 'uppercase' }}>Organisation</Text>
+          <View style={styles.searchWrapper}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Benutzer suchen..."
+              placeholderTextColor={Colors.textTertiary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
           </View>
-          <ScrollView style={{ marginTop: Spacing.sm }}>
-            <TouchableOpacity
-              style={selectedTeamId === 'system_all_users' ? styles.sidebarItemActive : styles.sidebarItem}
-              onPress={() => setSelectedTeamId('system_all_users')}
-            >
-              <View style={[styles.orgAvatar, { backgroundColor: '#4A90E2' }]}>
-                <Text style={styles.orgAvatarText}>ALL</Text>
-              </View>
-              <View>
-                <Text style={selectedTeamId === 'system_all_users' ? styles.sidebarItemTitleActive : styles.sidebarItemTitle}>
-                  Alle Benutzer (System)
-                </Text>
-                <Text style={selectedTeamId === 'system_all_users' ? styles.sidebarItemSubtitleActive : styles.sidebarItemSubtitle}>
-                  System-Ansicht
-                </Text>
-              </View>
-            </TouchableOpacity>
-
+          <ScrollView>
             {loadingTeams ? (
               <ActivityIndicator style={{ marginTop: Spacing.xl }} />
             ) : teams.map(team => (
@@ -387,39 +287,26 @@ export default function UsersSettingsScreen() {
             ))}
           </ScrollView>
         </View>
-              {canManage && selectedTeamId !== 'system_all_users' && (
-                <TouchableOpacity style={styles.sidebarFooter} onPress={() => setShowInviteModal(true)}>
-                  <Text style={styles.sidebarFooterText}>+ Benutzer anlegen</Text>
-                </TouchableOpacity>
-              )}
+        {canManage && (
+          <TouchableOpacity style={styles.sidebarFooter} onPress={() => setShowInviteModal(true)}>
+            <Text style={styles.sidebarFooterText}>+ Benutzer anlegen</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Main Content */}
       <View style={styles.main}>
-        {selectedTeam || selectedTeamId === 'system_all_users' ? (
+        {selectedTeam ? (
           <>
             <View style={styles.mainHeader}>
               <View style={styles.headerTitleRow}>
-                <View style={[styles.headerAvatar, { backgroundColor: selectedTeamId === 'system_all_users' ? '#4A90E2' : getAvatarColor(selectedTeam?.id || '') }]}>
-                  <Text style={styles.headerAvatarText}>{selectedTeamId === 'system_all_users' ? 'SY' : selectedTeam?.name.substring(0, 2).toUpperCase()}</Text>
+                <View style={[styles.headerAvatar, { backgroundColor: getAvatarColor(selectedTeam.id) }]}>
+                  <Text style={styles.headerAvatarText}>{selectedTeam.name.substring(0, 2).toUpperCase()}</Text>
                 </View>
                 <View>
-                  <Text style={styles.mainHeaderTitle}>{selectedTeamId === 'system_all_users' ? 'System' : selectedTeam?.name}</Text>
-                  <Text style={styles.mainHeaderSubtitle}>{selectedTeamId === 'system_all_users' ? 'Alle Benutzer' : 'Benutzer'}</Text>
+                  <Text style={styles.mainHeaderTitle}>{selectedTeam.name}</Text>
+                  <Text style={styles.mainHeaderSubtitle}>Benutzer</Text>
                 </View>
-              </View>
-            </View>
-
-            <View style={{ paddingHorizontal: Spacing.xl, paddingTop: Spacing.xl, paddingBottom: Spacing.sm, maxWidth: 800, alignSelf: 'center', width: '100%' }}>
-              <View style={[styles.searchWrapper, { margin: 0 }]}>
-                <Text style={styles.searchIcon}>🔍</Text>
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Benutzer suchen..."
-                  placeholderTextColor={Colors.textTertiary}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                />
               </View>
             </View>
 
@@ -437,7 +324,7 @@ export default function UsersSettingsScreen() {
                   <Text style={styles.emptyStateText}>Keine Mitglieder gefunden</Text>
                 </View>
               ) : filteredMembers.map(member => (
-                <View key={member.id} style={[styles.tableRow, editingMemberId === member.id && { zIndex: 10 }]}>
+                <View key={member.id} style={styles.tableRow}>
                   <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
                     <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
                       <Text style={styles.userAvatarText}>{getInitials(member.display_name, member.email)}</Text>
@@ -457,39 +344,21 @@ export default function UsersSettingsScreen() {
                         <TouchableOpacity
                           onPress={() => setEditingMemberId(editingMemberId === member.id ? null : member.id)}
                         >
-                          <Text style={styles.roleChip}>
-                            {selectedTeamId === 'system_all_users' ? 'Zu Team hinzufügen ⌄' : (ROLE_LABELS[member.role] || member.role) + ' ⌄'}
-                          </Text>
+                          <Text style={styles.roleChip}>{ROLE_LABELS[member.role] || member.role} ⌄</Text>
                         </TouchableOpacity>
                         {editingMemberId === member.id && (
-                          <View style={[styles.roleDropdown, selectedTeamId === 'system_all_users' && { width: 180, zIndex: 100 }]}>
-                            {selectedTeamId === 'system_all_users' ? (
-                              teams.length > 0 ? (
-                                teams.map(t => (
-                                  <TouchableOpacity
-                                    key={t.id}
-                                    style={styles.roleDropdownItem}
-                                    onPress={() => handleAddToTeam(member, t.id)}
-                                  >
-                                    <Text style={styles.roleDropdownText} numberOfLines={1}>{t.name}</Text>
-                                  </TouchableOpacity>
-                                ))
-                              ) : (
-                                <Text style={[styles.roleDropdownText, { padding: 8, color: '#999' }]}>Keine Teams</Text>
-                              )
-                            ) : (
-                              (['member', 'admin', 'owner'] as const).map(r => (
-                                <TouchableOpacity
-                                  key={r}
-                                  style={styles.roleDropdownItem}
-                                  onPress={() => handleChangeRole(member.id, r)}
-                                >
-                                  <Text style={[styles.roleDropdownText, member.role === r && { color: Colors.primary, fontWeight: 'bold' }]}>
-                                    {ROLE_LABELS[r]}
-                                  </Text>
-                                </TouchableOpacity>
-                              ))
-                            )}
+                          <View style={styles.roleDropdown}>
+                            {(['member', 'admin', 'owner'] as const).map(r => (
+                              <TouchableOpacity
+                                key={r}
+                                style={styles.roleDropdownItem}
+                                onPress={() => handleChangeRole(member.id, r)}
+                              >
+                                <Text style={[styles.roleDropdownText, member.role === r && { color: Colors.primary, fontWeight: 'bold' }]}>
+                                  {ROLE_LABELS[r]}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
                           </View>
                         )}
                       </View>
@@ -501,18 +370,9 @@ export default function UsersSettingsScreen() {
                   {canManage && (
                     <View style={{ width: 100, alignItems: 'flex-end' }}>
                       {!member.isMe && (
-                        <>
-                          <TouchableOpacity onPress={() => handleRemoveMember(member)}>
-                            <Text style={[styles.removeBtn, selectedTeamId === 'system_all_users' && { opacity: 0.5 }]}>
-                              {selectedTeamId === 'system_all_users' ? 'Nicht anwendbar' : 'Entfernen'}
-                            </Text>
-                          </TouchableOpacity>
-                          {(selectedTeam?.myRole === 'owner' || selectedTeamId === 'system_all_users') && (
-                            <TouchableOpacity onPress={() => handleHardDeleteMember(member)} style={{ marginTop: 6 }}>
-                              <Text style={[styles.removeBtn, { fontSize: 10, opacity: 0.8 }]}>Account endgültig löschen</Text>
-                            </TouchableOpacity>
-                          )}
-                        </>
+                        <TouchableOpacity onPress={() => handleRemoveMember(member)}>
+                          <Text style={styles.removeBtn}>Entfernen</Text>
+                        </TouchableOpacity>
                       )}
                     </View>
                   )}

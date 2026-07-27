@@ -51,11 +51,11 @@ export default function APISettingsScreen() {
           <Text style={[styles.tableCellText, { flex: 2, fontFamily: 'Courier' }]}>user_123456789</Text>
         </View>
         <View style={styles.tableRow}>
-          <Text style={[styles.tableCellText, { flex: 1, fontWeight: FontWeight.bold }]}>Organisation</Text>
+          <Text style={[styles.tableCellText, { flex: 1, fontWeight: FontWeight.bold }]}>Organisation (CF Celle GmbH)</Text>
           <Text style={[styles.tableCellText, { flex: 2, fontFamily: 'Courier' }]}>org_987654321</Text>
         </View>
         <View style={styles.tableRow}>
-          <Text style={[styles.tableCellText, { flex: 1, fontWeight: FontWeight.bold }]}>Team</Text>
+          <Text style={[styles.tableCellText, { flex: 1, fontWeight: FontWeight.bold }]}>Team (Studio)</Text>
           <Text style={[styles.tableCellText, { flex: 2, fontFamily: 'Courier' }]}>team_55555555</Text>
         </View>
       </View>

@@ -1,3 +1,4 @@
+import "@shopify/shopify-api/adapters/node";
 import { shopifyApi, ApiVersion, LogSeverity, type Shopify } from "@shopify/shopify-api";
 import { getSupabaseAdmin } from "./auth.service.js";
 
@@ -19,8 +20,8 @@ export async function getShopifyForTeam(teamId: string): Promise<Shopify | null>
     apiKey: data.api_key,
     apiSecretKey: data.api_secret,
     scopes: ["read_customers", "read_orders", "write_orders"],
-    hostName: data.app_host_name || "localhost:3001",
-    hostScheme: "http",
+    hostName: data.app_host_name || "mail.tim-regener.com",
+    hostScheme: "https",
     apiVersion: ApiVersion.April25,
     isEmbeddedApp: false,
     logger: { level: LogSeverity.Warning },

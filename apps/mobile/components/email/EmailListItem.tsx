@@ -12,12 +12,10 @@ interface EmailListItemProps {
   thread: Thread;
   onPress: () => void;
   isSelected?: boolean;
-  isMultiSelected?: boolean;
-  onToggleSelect?: (thread: Thread) => void;
   onContextMenu?: (thread: Thread, position: { x: number, y: number }) => void;
 }
 
-export const EmailListItem = React.memo(function EmailListItem({ thread, onPress, isSelected = false, isMultiSelected = false, onToggleSelect, onContextMenu }: EmailListItemProps) {
+export const EmailListItem = React.memo(function EmailListItem({ thread, onPress, isSelected = false, onContextMenu }: EmailListItemProps) {
   const isUnread = !thread.is_read;
   
   const dateObj = thread.latestEmail.received_at ? parseISO(thread.latestEmail.received_at) : new Date();
@@ -45,8 +43,7 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
     <TouchableOpacity
       style={[
         styles.container,
-        isSelected && styles.containerSelected,
-        isMultiSelected && styles.containerMultiSelected
+        isSelected && styles.containerSelected
       ]}
       onPress={onPress}
       activeOpacity={0.7}
@@ -73,19 +70,7 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
         {isUnread && <View style={[styles.unreadDot, isSelected && styles.unreadDotSelected]} />}
         {!isUnread && <View style={styles.unreadDotPlaceholder} />}
         
-        {onToggleSelect ? (
-          <TouchableOpacity onPress={() => onToggleSelect(thread)} activeOpacity={0.8}>
-            {isMultiSelected ? (
-              <View style={styles.multiSelectCheck}>
-                <Feather name="check" size={16} color="#FFF" />
-              </View>
-            ) : (
-              <Avatar name={displayName} size={28} />
-            )}
-          </TouchableOpacity>
-        ) : (
-          <Avatar name={displayName} size={28} />
-        )}
+        <Avatar name={displayName} size={28} />
       </View>
       
       <View style={styles.contentContainer}>
@@ -179,9 +164,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#E6F0FF', // Light blue background matching screenshot
     borderBottomColor: 'transparent',
   },
-  containerMultiSelected: {
-    backgroundColor: '#F0F5FF',
-  },
   leftCol: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -202,14 +184,6 @@ const styles = StyleSheet.create({
   },
   unreadDotSelected: {
     backgroundColor: Colors.info,
-  },
-  multiSelectCheck: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   contentContainer: {
     flex: 1,

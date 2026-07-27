@@ -357,36 +357,17 @@ export class ImapClient {
   public async deleteMessage(uid: number, mailbox: string = "INBOX"): Promise<void> {
     if (!this.isConnected) await this.connect();
     
+    // Ensure we are in the correct mailbox
     if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
       await this.client.mailboxOpen(mailbox);
     }
     
-    if (this.folderMap.trash) {
-      await this.client.messageMove({ uid }, this.folderMap.trash, { uid: true });
-      console.log(`[ImapClient] Moved uid ${uid} to trash: ${this.folderMap.trash}`);
-    } else {
-      await this.client.messageFlagsAdd({ uid }, ["\\Deleted"], { uid: true });
-      console.log(`[ImapClient] No trash folder. Marked uid ${uid} with \\Deleted flag`);
-    }
-  }
-
-  public async deleteMessages(uids: number[], mailbox: string = "INBOX"): Promise<void> {
-    if (!uids.length) return;
-    if (!this.isConnected) await this.connect();
+    // Add \Deleted flag
+    await this.client.messageFlagsAdd({ uid }, ["\\Deleted"], { uid: true });
     
-    if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
-      await this.client.mailboxOpen(mailbox);
-    }
-    
-    const uidString = uids.join(',');
-    
-    if (this.folderMap.trash) {
-      await this.client.messageMove({ uid: uidString }, this.folderMap.trash, { uid: true });
-      console.log(`[ImapClient] Moved ${uids.length} uids to trash: ${this.folderMap.trash}`);
-    } else {
-      await this.client.messageFlagsAdd({ uid: uidString }, ["\\Deleted"], { uid: true });
-      console.log(`[ImapClient] No trash folder. Marked ${uids.length} uids with \\Deleted flag`);
-    }
+    // Most servers support moving to Trash or expunging.
+    // For now, we just set the flag.
+    console.log(`[ImapClient] Marked uid ${uid} as deleted in ${mailbox}`);
   }
 
   public async archiveMessage(uid: number, mailbox: string = "INBOX"): Promise<void> {
@@ -412,33 +393,6 @@ export class ImapClient {
       console.warn(`[ImapClient] No archive folder found for ${this.config.user}. Setting \Archive flag manually.`);
       // Some servers might not have an archive folder but support custom flags
       await this.client.messageFlagsAdd({ uid }, ["Archive"], { uid: true });
-    }
-  }
-
-  public async archiveMessages(uids: number[], mailbox: string = "INBOX"): Promise<void> {
-    if (!uids.length) return;
-    if (!this.isConnected) await this.connect();
-    
-    if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
-      await this.client.mailboxOpen(mailbox);
-    }
-    
-    const folders = await this.client.list();
-    const archiveFolder = folders.find(f => 
-      f.name.toLowerCase().includes('archive') || 
-      f.name.toLowerCase().includes('archiv') || 
-      f.specialUse === '\\Archive' ||
-      f.name.toLowerCase().includes('all mail')
-    );
-    
-    const uidString = uids.join(',');
-    
-    if (archiveFolder) {
-      await this.client.messageMove({ uid: uidString }, archiveFolder.path, { uid: true });
-      console.log(`[ImapClient] Moved ${uids.length} uids to archive folder: ${archiveFolder.path}`);
-    } else {
-      console.warn(`[ImapClient] No archive folder found for ${this.config.user}. Setting \Archive flag manually.`);
-      await this.client.messageFlagsAdd({ uid: uidString }, ["Archive"], { uid: true });
     }
   }
 

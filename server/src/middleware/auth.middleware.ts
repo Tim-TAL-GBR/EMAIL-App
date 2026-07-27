@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "node:http";
-import { getSupabaseAdmin, getSupabaseForUser } from "../services/auth.service.js";
+import { getSupabaseAdmin } from "../services/auth.service.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,8 +40,7 @@ function extractBearerToken(headerValue: string): string {
 export async function verifySupabaseToken(
   token: string,
 ): Promise<TokenPayload> {
-  // Use a fresh client for the user to avoid mutating the global admin client singleton
-  const supabase = getSupabaseForUser(token);
+  const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.auth.getUser(token);
   
   if (error || !data.user) {

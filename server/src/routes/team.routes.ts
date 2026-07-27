@@ -57,9 +57,7 @@ teamRouter.post("/", validateBody(z.object({ name: z.string().min(1) })), async 
     }
 
     const supabase = getSupabaseAdmin();
-    const baseSlug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const uniqueSuffix = Math.random().toString(36).substring(2, 6);
-    const slug = `${baseSlug}-${uniqueSuffix}`;
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
     const { data: team, error: teamError } = await supabase
       .from("teams")
@@ -425,36 +423,16 @@ teamRouter.delete("/:id/members/:memberId", async (req, res) => {
       return;
     }
 
-    const isHardDelete = req.query.hard === 'true';
+    const { error } = await supabase
+      .from("team_members")
+      .delete()
+      .eq("team_id", teamId)
+      .eq("user_id", memberId);
 
-    if (isHardDelete) {
-      // Hard delete: completely delete the user from Supabase Auth
-      // Only owner can hard delete (or user deletes themselves)
-      if (!isSelf && myMembership.role !== "owner") {
-        res.status(403).json({ error: "Nur der Inhaber kann Benutzer endgültig löschen" });
-        return;
-      }
-      
-      const { error } = await supabase.auth.admin.deleteUser(memberId);
-      if (error) {
-        res.status(500).json({ error: error.message });
-        return;
-      }
-    } else {
-      // Soft delete: remove from team_members only
-      const { error } = await supabase
-        .from("team_members")
-        .delete()
-        .eq("team_id", teamId)
-        .eq("user_id", memberId);
-
-      if (error) {
-        res.status(500).json({ error: error.message });
-        return;
-      }
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
     }
-
-
 
     res.json({ message: "Mitglied erfolgreich entfernt" });
   } catch (err: any) {

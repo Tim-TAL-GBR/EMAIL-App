@@ -45,9 +45,36 @@ userRouter.get("/", async (req, res) => {
 userRouter.delete("/:id", async (req, res) => {
   try {
     const targetUserId = req.params.id;
-    // In a real app we'd verify the caller is a system admin, but here the owner manages all
-    const supabase = getSupabaseAdmin();
+    const callerId = req.user!.sub;
 
+    // Users can only delete themselves, unless they are team owner
+    if (callerId !== targetUserId) {
+      // Check if caller is an owner of any team the target belongs to
+      const supabase = getSupabaseAdmin();
+      const { data: callerMemberships } = await supabase
+        .from("team_members")
+        .select("team_id, role")
+        .eq("user_id", callerId)
+        .eq("role", "owner");
+
+      if (!callerMemberships || callerMemberships.length === 0) {
+        return res.status(403).json({ error: "Nur Team-Owner können andere Benutzer löschen" });
+      }
+
+      // Verify target is in one of the caller's teams
+      const { data: targetMembership } = await supabase
+        .from("team_members")
+        .select("team_id")
+        .eq("user_id", targetUserId)
+        .in("team_id", callerMemberships.map(m => m.team_id))
+        .maybeSingle();
+
+      if (!targetMembership) {
+        return res.status(403).json({ error: "Benutzer gehört nicht zu deinem Team" });
+      }
+    }
+
+    const supabase = getSupabaseAdmin();
     const { error } = await supabase.auth.admin.deleteUser(targetUserId);
 
     if (error) {

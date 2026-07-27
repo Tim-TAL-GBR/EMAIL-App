@@ -34,12 +34,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png",
-      "name": "TeamMail",
-      "shortName": "TeamMail",
-      "themeColor": "#0F172A",
-      "backgroundColor": "#0F172A",
-      "display": "standalone"
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",

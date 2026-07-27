@@ -7,95 +7,6 @@ export const emailRouter: Router = Router();
 
 emailRouter.use(requireAuth);
 
-emailRouter.post("/bulk-action", async (req, res) => {
-  try {
-    const userId = req.user!.sub;
-    const { emailIds, action } = req.body;
-
-    if (!emailIds || !Array.isArray(emailIds) || emailIds.length === 0) {
-      res.status(400).json({ error: "emailIds must be a non-empty array" });
-      return;
-    }
-    if (!["read", "archive", "delete"].includes(action)) {
-      res.status(400).json({ error: "Invalid action. Must be read, archive, or delete" });
-      return;
-    }
-
-    const supabase = getSupabaseAdmin();
-
-    const accessibleEmails: string[] = [];
-    for (const emailId of emailIds) {
-      if (await canAccessEmail(userId, emailId)) {
-        accessibleEmails.push(emailId);
-      }
-    }
-    
-    if (accessibleEmails.length === 0) {
-      res.status(403).json({ error: "No access to any of the provided emails" });
-      return;
-    }
-
-    const { data: emails, error: fetchError } = await supabase
-      .from("emails")
-      .select("id, inbox_id, imap_uid")
-      .in("id", accessibleEmails);
-
-    if (fetchError || !emails) {
-      res.status(500).json({ error: fetchError?.message || "Error fetching emails" });
-      return;
-    }
-
-    let updatePayload = {};
-    if (action === "read") updatePayload = { is_read: true };
-    else if (action === "archive") updatePayload = { is_archived: true, updated_at: new Date().toISOString() };
-    else if (action === "delete") updatePayload = { is_deleted: true, updated_at: new Date().toISOString() };
-
-    const { error: updateError } = await supabase
-      .from("emails")
-      .update(updatePayload)
-      .in("id", emails.map(e => e.id));
-
-    if (updateError) {
-      res.status(500).json({ error: updateError.message });
-      return;
-    }
-
-    if (action === "archive" || action === "delete") {
-      const inboxGroups: Record<string, number[]> = {};
-      for (const email of emails) {
-        if (email.imap_uid) {
-          if (!inboxGroups[email.inbox_id]) {
-            inboxGroups[email.inbox_id] = [];
-          }
-          inboxGroups[email.inbox_id].push(email.imap_uid);
-        }
-      }
-
-      const { mailManager } = await import("../mail/MailManager.js");
-      
-      for (const [inboxId, uids] of Object.entries(inboxGroups)) {
-        try {
-          const client = mailManager.getClient(inboxId);
-          if (client) {
-            if (action === "archive") {
-              await client.archiveMessages(uids);
-            } else if (action === "delete") {
-              await client.deleteMessages(uids);
-            }
-          }
-        } catch (imapErr) {
-          console.error(`[EmailRoutes] IMAP bulk error for inbox ${inboxId}:`, imapErr);
-        }
-      }
-    }
-
-    res.json({ success: true, processedCount: emails.length });
-  } catch (err: any) {
-    console.error("[EmailRoutes] POST /bulk-action error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
-  }
-});
-
 emailRouter.get("/:emailId", async (req, res) => {
   try {
     const userId = req.user!.sub;
@@ -380,14 +291,10 @@ emailRouter.delete("/:emailId", async (req, res) => {
     }
 
     if (email.imap_uid) {
-      try {
-        const { mailManager } = await import("../mail/MailManager.js");
-        const client = mailManager.getClient(email.inbox_id);
-        if (client) {
-          await client.deleteMessage(email.imap_uid);
-        }
-      } catch (imapErr) {
-        console.error(`[EmailRoutes] IMAP delete failed for ${emailId}:`, imapErr);
+      const { mailManager } = await import("../mail/MailManager.js");
+      const client = mailManager.getClient(email.inbox_id);
+      if (client) {
+        await client.deleteMessage(email.imap_uid);
       }
     }
 

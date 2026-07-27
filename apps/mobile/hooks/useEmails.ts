@@ -19,17 +19,15 @@ export function useEmails(inboxIds: string[], labelId?: string, activeContextTyp
   const inboxIdsStr = JSON.stringify(inboxIds);
 
   useEffect(() => {
-    if (activeContextType !== 'assigned' && activeContextType !== 'global_inbox' && (!inboxIds || inboxIds.length === 0)) {
+    if (activeContextType !== 'assigned' && (!inboxIds || inboxIds.length === 0)) {
       store.fetchEmails([]);
       return;
     }
 
     store.fetchEmails(inboxIds, labelId, activeContextType, activeFilter);
 
-    const channelName = `emails-${activeContextType}-${inboxIds[0] || 'all'}-${inboxIds.length}-${labelId || 'no-label'}`;
-    const filterString = (activeContextType === 'global_inbox' || activeContextType === 'assigned') 
-      ? undefined 
-      : `inbox_id=in.(${inboxIds.join(',')})`;
+    const channelName = `emails-inboxes-${inboxIds[0]}-${inboxIds.length}-${labelId || 'no-label'}`;
+    const filterString = `inbox_id=in.(${inboxIds.join(',')})`;
 
     // Remove stale channel (React Strict Mode double-invoke guard)
     const stale = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
@@ -42,19 +40,19 @@ export function useEmails(inboxIds: string[], labelId?: string, activeContextTyp
       .channel(channelName)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'emails', ...(filterString ? { filter: filterString } : {}) },
+        { event: 'INSERT', schema: 'public', table: 'emails', filter: filterString },
         (payload) => { 
           if (!labelId) store.addEmail(payload.new as Email); 
         },
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'emails', ...(filterString ? { filter: filterString } : {}) },
+        { event: 'UPDATE', schema: 'public', table: 'emails', filter: filterString },
         (payload) => { store.updateEmail(payload.new as Partial<Email> & { id: string }); },
       )
       .on(
         'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'emails', ...(filterString ? { filter: filterString } : {}) },
+        { event: 'DELETE', schema: 'public', table: 'emails', filter: filterString },
         (payload) => {
           const deleted = payload.old as { id?: string };
           if (deleted.id) store.removeEmail(deleted.id);

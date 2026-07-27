@@ -13,10 +13,6 @@ import { commentRouter } from "./routes/comment.routes.js";
 import { templateRouter } from "./routes/template.routes.js";
 import { pushRouter } from "./routes/push.routes.js";
 import { teamRouter } from "./routes/team.routes.js";
-import { groupRouter } from "./routes/group.routes.js";
-import { userRouter } from "./routes/user.routes.js";
-import { signatureRouter } from "./routes/signature.routes.js";
-import { shopifyRouter } from "./routes/shopify.routes.js";
 import { startEmailWorker } from "./services/queue.service.js";
 
 // ---------------------------------------------------------------------------
@@ -39,11 +35,6 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", uptime: process.uptime() });
 });
 
-/** Root endpoint to provide a friendly response in the browser. */
-app.get("/", (_req, res) => {
-  res.json({ service: "TeamMail API", status: "online", version: "1.0.0" });
-});
-
 // API Routes
 app.use("/api/mail", mailRouter);
 app.use("/api/inboxes", inboxRouter);
@@ -52,10 +43,6 @@ app.use("/api/comments", commentRouter);
 app.use("/api/templates", templateRouter);
 app.use("/api/push", pushRouter);
 app.use("/api/teams", teamRouter);
-app.use("/api/groups", groupRouter);
-app.use("/api/users", userRouter);
-app.use("/api/signatures", signatureRouter);
-app.use("/api/shopify", shopifyRouter);
 
 // ---------------------------------------------------------------------------
 // HTTP + WebSocket Server

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, ActivityIndicator, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { useAuthStore } from '../../../stores/authStore';
@@ -136,55 +136,6 @@ export default function OrganizationsSettingsScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.settingDescription}>Administratoren können den Namen der Organisation jederzeit ändern.</Text>
-          </View>
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: '#F06A6A' }]}>Gefahrenzone</Text>
-        </View>
-        <View style={[styles.card, { borderColor: '#F06A6A' }]}>
-          <View style={styles.flexRowBetween}>
-            <View style={{ flex: 1, paddingRight: Spacing.lg }}>
-              <Text style={styles.settingLabel}>Organisation löschen</Text>
-              <Text style={styles.settingDescription}>
-                Löscht diese Organisation und alle zugehörigen Daten unwiderruflich. Dies kann nicht rückgängig gemacht werden.
-              </Text>
-            </View>
-            <TouchableOpacity 
-              style={[styles.modalButtonPrimary, { backgroundColor: '#F06A6A' }]}
-              onPress={async () => {
-                if (!activeTeam) return;
-
-                const deleteTeam = async () => {
-                  try {
-                    await apiRequest(`/api/teams/${activeTeam.id}`, 'DELETE');
-                    setTeams(teams.filter(t => t.id !== activeTeam.id));
-                    setActiveTeamId(teams.filter(t => t.id !== activeTeam.id)[0]?.id || null);
-                    if (Platform.OS !== 'web') Alert.alert('Erfolg', 'Organisation wurde gelöscht');
-                  } catch (err: any) {
-                    if (Platform.OS === 'web') window.alert(err.message || 'Konnte Organisation nicht löschen');
-                    else Alert.alert('Fehler', err.message || 'Konnte Organisation nicht löschen');
-                  }
-                };
-
-                if (Platform.OS === 'web') {
-                  if (window.confirm(`Bist du sicher, dass du die Organisation "${activeTeam.name}" endgültig löschen möchtest?`)) {
-                    deleteTeam();
-                  }
-                } else {
-                  Alert.alert(
-                    "Organisation löschen",
-                    `Bist du sicher, dass du die Organisation "${activeTeam.name}" endgültig löschen möchtest?`,
-                    [
-                      { text: "Abbrechen", style: "cancel" },
-                      { text: "Löschen", style: "destructive", onPress: deleteTeam }
-                    ]
-                  );
-                }
-              }}
-            >
-              <Text style={styles.modalButtonPrimaryText}>Löschen</Text>
-            </TouchableOpacity>
           </View>
         </View>
     </ScrollView>
