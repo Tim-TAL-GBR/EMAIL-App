@@ -8,6 +8,19 @@ import { Button } from '../ui/Button';
 import { EmailAssignment } from './EmailAssignment';
 import { supabase } from '../../lib/supabase';
 import { EmailComposer } from './EmailComposer';
+
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<object[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed[\s\S]*?\/?>/gi, '')
+    .replace(/<form[\s\S]*?<\/form>/gi, '')
+    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/on\w+\s*=\s*[^\s>]*/gi, '')
+    .replace(/javascript\s*:/gi, '')
+    .replace(/data\s*:\s*text\/html/gi, '');
+}
 import { useEmailStore } from '../../stores/emailStore';
 import { useInboxes } from '../../hooks/useInboxes';
 import { Feather } from '@expo/vector-icons';
@@ -177,7 +190,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
                   </style>
                 </head>
                 <body>
-                  ${fullBody.html}
+                  ${sanitizeHtml(fullBody.html)}
                 </body>
                 </html>
               `}
@@ -197,7 +210,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
                   </style>
                 </head>
                 <body>
-                  ${fullBody.html}
+                  ${sanitizeHtml(fullBody.html)}
                   <script>
                     window.ReactNativeWebView.postMessage(Math.max(document.body.scrollHeight, document.documentElement.scrollHeight).toString());
                   </script>

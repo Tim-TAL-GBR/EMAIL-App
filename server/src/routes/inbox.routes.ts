@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
@@ -23,7 +24,7 @@ inboxRouter.get("/", async (req, res) => {
       .order("name");
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
@@ -42,7 +43,7 @@ inboxRouter.get("/", async (req, res) => {
     res.json({ inboxes: Array.from(merged.values()) });
   } catch (err: any) {
     console.error("[InboxRoutes] GET / error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -79,7 +80,7 @@ inboxRouter.get("/:inboxId", async (req, res) => {
     res.json({ inbox: { ...inbox, unread_count: unreadCount ?? 0 } });
   } catch (err: any) {
     console.error("[InboxRoutes] GET /:inboxId error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -114,14 +115,14 @@ inboxRouter.get("/:inboxId/emails", async (req, res) => {
     const { data: emails, error, count } = await query;
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ emails: emails ?? [], count });
   } catch (err: any) {
     console.error("[InboxRoutes] GET /:inboxId/emails error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -142,7 +143,7 @@ inboxRouter.post("/:inboxId/reconnect", async (req, res) => {
     res.json({ success: true, message: "IMAP client restarted" });
   } catch (err: any) {
     console.error("[InboxRoutes] POST /:inboxId/reconnect error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -184,7 +185,7 @@ inboxRouter.post("/:inboxId/archive-bulk", validateBody(z.object({ beforeDate: z
     res.json({ success: true, count: updated?.length || 0 });
   } catch (err: any) {
     console.error("[InboxRoutes] POST /:inboxId/archive-bulk error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -246,7 +247,7 @@ inboxRouter.delete("/:inboxId", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     console.error("[InboxRoutes] DELETE /:inboxId error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -322,7 +323,7 @@ inboxRouter.patch("/:inboxId/credentials", validateBody(z.object({
     res.json({ success: true });
   } catch (err: any) {
     console.error("[InboxRoutes] PATCH /:inboxId/credentials error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -371,7 +372,7 @@ inboxRouter.get("/:inboxId/folders", async (req, res) => {
     res.json({ folders: mappedFolders });
   } catch (err: any) {
     console.error("[InboxRoutes] GET /:inboxId/folders error:", err);
-    res.status(500).json({ error: err.message || "Fehler beim Abrufen der IMAP-Ordner" });
+    res.status(500).json({ error: safeErrorMessage(err) || "Fehler beim Abrufen der IMAP-Ordner" });
   }
 });
 
@@ -481,7 +482,7 @@ inboxRouter.post("/:inboxId/members/invite", async (req, res) => {
       .insert({ inbox_id: inboxId, user_id: profile.id, role });
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
@@ -490,7 +491,7 @@ inboxRouter.post("/:inboxId/members/invite", async (req, res) => {
       user: profile 
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -585,13 +586,13 @@ inboxRouter.patch("/:inboxId/members/:memberId", async (req, res) => {
       .eq("user_id", memberId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ message: "Rolle erfolgreich geändert" });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -655,13 +656,13 @@ inboxRouter.delete("/:inboxId/members/:memberId", async (req, res) => {
       .eq("user_id", memberId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ message: "Mitglied erfolgreich entfernt" });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 

@@ -221,7 +221,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         attachments, // Pass to backend
       };
 
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+      const apiUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
       
       const response = await fetch(`${apiUrl}/api/mail/send`, {
         method: 'POST',

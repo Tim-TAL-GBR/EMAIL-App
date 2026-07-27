@@ -146,7 +146,8 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     handleRefresh();
   };
 
-  const filteredThreads = (threads ?? []).filter(t => {
+  const filteredThreads = React.useMemo(() => {
+    return (threads ?? []).filter(t => {
     if (t.latestEmail.snooze_until && new Date(t.latestEmail.snooze_until) > new Date()) {
       return false;
     }
@@ -244,7 +245,8 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
       return passes && (subjectMatch || fromMatch);
     }
     return passes;
-  });
+    });
+  }, [threads, searchText, activeFilter, activeContextType, activeContextId, inboxes, user?.id]);
 
   const handleEmailPress = (id: string) => {
     if (isDesktop) {

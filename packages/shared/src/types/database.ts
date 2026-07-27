@@ -1121,6 +1121,33 @@ export type CompositeTypes<
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
+// ── Convenience type aliases ──
+export type Email = Tables<'emails'>
+export type EmailAssignment = Tables<'email_assignments'>
+export type EmailAttachment = Tables<'email_attachments'>
+export type EmailLabel = Tables<'email_labels'>
+export type EmailStatus = Enums<'email_status'>
+export type EmailDirection = Enums<'email_direction'>
+export type InternalComment = Tables<'internal_comments'>
+export type Profile = Tables<'profiles'>
+export type Inbox = Tables<'inboxes'>
+export type InboxMember = Tables<'inbox_members'>
+export type InboxRole = Enums<'inbox_role'>
+export type InboxType = Enums<'inbox_type'>
+export type InboxAlias = Tables<'inbox_aliases'>
+export type Team = Tables<'teams'>
+export type TeamMember = Tables<'team_members'>
+export type TeamRole = Enums<'team_role'>
+export type Label = Tables<'labels'>
+export type Template = Tables<'templates'>
+export type Task = Tables<'tasks'>
+export type Rule = Tables<'rules'>
+export type Signature = Tables<'signatures'>
+export type Notification = Tables<'notifications'>
+export type PushToken = Tables<'push_tokens'>
+export type Draft = Tables<'drafts'>
+export type UserPinnedThread = Tables<'user_pinned_threads'>
+
 export const Constants = {
   graphql_public: {
     Enums: {},

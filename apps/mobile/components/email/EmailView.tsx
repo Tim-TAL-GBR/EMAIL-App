@@ -33,8 +33,9 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       if (selectedThread && selectedThread.latestEmail) {
         const unreadEmailIds = selectedThread.emails.filter(e => !e.is_read).map(e => e.id);
         if (unreadEmailIds.length > 0) {
+          await supabase.from('emails').update({ is_read: true }).in('id', unreadEmailIds);
           for (const id of unreadEmailIds) {
-            await markAsRead(id);
+            useEmailStore.getState().updateEmail({ id, is_read: true } as any);
           }
         }
 

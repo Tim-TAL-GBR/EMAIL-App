@@ -2,8 +2,13 @@ import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-secret-key-must-be-32-chars!';
-const key = Buffer.alloc(32, ENCRYPTION_KEY);
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+
+if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 32) {
+  console.error("[encryption] CRITICAL: ENCRYPTION_KEY env var is missing or too short. Set it to a 32+ char string.");
+}
+
+const key = Buffer.alloc(32, ENCRYPTION_KEY || '');
 
 export function encrypt(text: string): string {
   if (!text) return text;

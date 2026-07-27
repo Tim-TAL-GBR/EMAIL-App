@@ -310,7 +310,8 @@ export default function AccountsSettingsScreen() {
       if (isNaN(Date.parse(archiveDate))) {
         throw new Error('Ungültiges Datum. Bitte YYYY-MM-DD verwenden.');
       }
-      const response = await fetch(`http://localhost:3001/api/inboxes/${account.id}/archive-bulk`, {
+      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
+      const response = await fetch(`${backendUrl}/api/inboxes/${account.id}/archive-bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

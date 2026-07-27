@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
 import { canWriteToInbox } from "../realtime/guards.js";
 import { smtpClient } from "../mail/SmtpClient.js";
@@ -76,7 +77,7 @@ mailRouter.post("/test-connection", async (req, res) => {
     }
   } catch (error: any) {
     console.error("[MailRoutes] Error testing connection:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(error) });
   }
 });
 
@@ -117,7 +118,7 @@ mailRouter.post("/restart-client", async (req, res) => {
     res.json({ success: true, message: "Client restarted" });
   } catch (error: any) {
     console.error("[MailRoutes] Error restarting client:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(error) });
   }
 });
 
@@ -189,6 +190,6 @@ mailRouter.post("/send", async (req, res) => {
     res.json({ success: true, message: "Email sent successfully" });
   } catch (error: any) {
     console.error("[MailRoutes] Error sending email:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(error) });
   }
 });

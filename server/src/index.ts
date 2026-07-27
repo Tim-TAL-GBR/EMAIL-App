@@ -4,6 +4,8 @@ import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import express from "express";
 import { createServer } from "node:http";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { createWebSocketGateway } from "./realtime/gateway.js";
 import { mailManager } from "./mail/MailManager.js";
 import { mailRouter } from "./routes/mail.routes.js";
@@ -28,8 +30,32 @@ const PORT = Number(process.env.PORT) || 3001;
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "https://mail.tim-regener.com",
+  "https://extensions.shopifycdn.com",
+  "https://admin.shopify.com",
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.some(o => origin.endsWith(o.replace('https://', ''))) || origin.includes('.myshopify.com')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow in dev; tighten in production if needed
+    }
+  },
+  credentials: true,
+}));
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.use(express.json({ limit: '2mb' }));
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+});
+app.use("/api/", limiter);
 
 /** Health-check endpoint – used by load-balancers & monitoring. */
 app.get("/health", (_req, res) => {
@@ -46,11 +72,21 @@ app.use("/api/push", pushRouter);
 app.use("/api/teams", teamRouter);
 app.use("/api/shopify", shopifyRouter);
 
+// Global error handler — no stack traces in production
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[server] Unhandled error:", err.message);
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' ? "Internal server error" : err.message,
+  });
+});
+
 // ---------------------------------------------------------------------------
 // HTTP + WebSocket Server
 // ---------------------------------------------------------------------------
 
 const server = createServer(app);
+server.timeout = 30000;
+server.keepAliveTimeout = 15000;
 createWebSocketGateway(server);
 
 server.listen(PORT, async () => {

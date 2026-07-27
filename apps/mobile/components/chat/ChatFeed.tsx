@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, Shadows, BorderRadius } from '../../lib/constants';
@@ -108,7 +108,7 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
         ref={flatListRef}
         data={timeline} // chronological order
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
+        renderItem={useCallback(({ item }: { item: any }) => {
           if (item.type === 'email') {
             const lastEmailId = [...timeline].reverse().find(i => i.type === 'email')?.id;
             const isLastEmail = item.id === lastEmailId;
@@ -122,7 +122,7 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
           } else {
             return <ChatMessage comment={item.data as any} />
           }
-        }}
+        }, [timeline, onEmailStatusChange, onDraftPress])}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={headerComponent}
         ListEmptyComponent={

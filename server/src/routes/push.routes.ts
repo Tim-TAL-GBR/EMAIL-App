@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
@@ -29,14 +30,14 @@ pushRouter.post("/register", async (req, res) => {
       );
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ success: true });
   } catch (err: any) {
     console.error("[PushRoutes] POST /register error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -58,13 +59,13 @@ pushRouter.delete("/unregister", async (req, res) => {
       .eq("token", token);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ success: true });
   } catch (err: any) {
     console.error("[PushRoutes] DELETE /unregister error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });

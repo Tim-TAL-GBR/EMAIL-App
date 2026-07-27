@@ -62,8 +62,6 @@ function computeThreads(emails: Email[]): Thread[] {
   const threadMap = new Map<string, Email[]>();
   
   emails.forEach(email => {
-    // Falls thread_id fehlt, kann die E-Mail selbst der Start eines Threads sein.
-    // Dann nutzen wir ihre eigene message_id als Gruppierungsschlüssel.
     const key = email.thread_id || email.message_id || email.id;
     if (!threadMap.has(key)) threadMap.set(key, []);
     threadMap.get(key)!.push(email);
@@ -97,6 +95,21 @@ function computeThreads(emails: Email[]): Thread[] {
     return bTime - aTime;
   });
   return threads;
+}
+
+let _threadComputeTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingThreadUpdate: (() => void) | null = null;
+const MAX_EMAILS = 500;
+
+function debouncedComputeThreads(emails: Email[], set: any) {
+  if (_threadComputeTimer) clearTimeout(_threadComputeTimer);
+  _pendingThreadUpdate = () => {
+    set({ threads: computeThreads(emails) });
+  };
+  _threadComputeTimer = setTimeout(() => {
+    _pendingThreadUpdate?.();
+    _pendingThreadUpdate = null;
+  }, 50);
 }
 
 /** Shape of the email state and actions */
@@ -296,13 +309,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const existingIds = new Set(currentEmails.map(e => e.id));
       const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
       
-      const allEmails = [...currentEmails, ...uniqueNewEmails];
+      const allEmails = [...currentEmails, ...uniqueNewEmails].slice(0, MAX_EMAILS);
       
       set({ 
         emails: allEmails, 
         threads: computeThreads(allEmails), 
         isLoadingMore: false, 
-        hasMoreEmails: newEmails.length === limit 
+        hasMoreEmails: newEmails.length === limit && allEmails.length < MAX_EMAILS
       });
     } catch (err) {
       set({
@@ -507,7 +520,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       if (state.emails.some((e) => e.id === email.id)) {
         return state;
       }
-      const emails = [email, ...state.emails];
+      const emails = [email, ...state.emails].slice(0, MAX_EMAILS);
       return {
         emails,
         threads: computeThreads(emails),

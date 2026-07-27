@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
@@ -18,7 +19,7 @@ userRouter.get("/", async (req, res) => {
     const { data: { users }, error } = await supabase.auth.admin.listUsers();
     
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
@@ -35,7 +36,7 @@ userRouter.get("/", async (req, res) => {
 
     res.json(mappedUsers);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -78,13 +79,13 @@ userRouter.delete("/:id", async (req, res) => {
     const { error } = await supabase.auth.admin.deleteUser(targetUserId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ message: "Benutzer wurde endgültig gelöscht" });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -99,12 +100,12 @@ userRouter.delete("/me", async (req, res) => {
     const { error } = await supabase.auth.admin.deleteUser(userId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ message: "Benutzerkonto wurde endgültig gelöscht" });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });

@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "../services/auth.service.js";
@@ -22,7 +23,7 @@ shopifyRouter.get("/app-config", requireAuth, async (req, res) => {
     .eq("team_id", teamId)
     .maybeSingle();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: safeErrorMessage(error) });
   res.json({ config: data });
 });
 
@@ -57,7 +58,7 @@ shopifyRouter.post("/app-config", requireAuth, async (req, res) => {
     .select("id, team_id, api_key, app_host_name")
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: safeErrorMessage(error) });
   invalidateShopifyForTeam(teamId);
   res.json({ config: data });
 });
@@ -88,12 +89,25 @@ shopifyRouter.get("/status", requireAuth, async (req, res) => {
 // OAuth: Begin
 // ---------------------------------------------------------------------------
 
-shopifyRouter.get("/auth", async (req, res) => {
+shopifyRouter.get("/auth", requireAuth, async (req, res) => {
   const shop = req.query.shop as string;
   const teamId = req.query.team_id as string;
 
   if (!shop || !teamId) {
     return res.status(400).json({ error: "Missing shop or team_id" });
+  }
+
+  // Verify caller is owner/admin of this team
+  const supabase = getSupabaseAdmin();
+  const { data: membership } = await supabase
+    .from("team_members")
+    .select("role")
+    .eq("team_id", teamId)
+    .eq("user_id", req.user!.sub)
+    .maybeSingle();
+
+  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+    return res.status(403).json({ error: "Only team owners/admins can initiate Shopify OAuth" });
   }
 
   const shopify = await getShopifyForTeam(teamId);
@@ -198,7 +212,7 @@ shopifyRouter.delete("/disconnect", requireAuth, async (req, res) => {
     .eq("team_id", teamId)
     .eq("shop_domain", shopDomain);
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: safeErrorMessage(error) });
   res.json({ success: true });
 });
 
@@ -587,11 +601,10 @@ shopifyRouter.get("/order-communication", async (req, res) => {
     return res.status(400).json({ error: "Invalid shop domain" });
   }
 
-  // Shared secret check — Shopify CDN strips custom headers, so accept header OR query param.
-  // CORS already restricts callers to *.shopifycdn.com / *.myshopify.com.
+  // Shared secret check — mandatory, not conditional
   const extensionKey = (req.headers["x-teammail-extension-key"] as string) || (req.query.key as string);
   const expectedKey = process.env.SHOPIFY_EXTENSION_SECRET;
-  if (expectedKey && extensionKey && extensionKey !== expectedKey) {
+  if (!expectedKey || !extensionKey || extensionKey !== expectedKey) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -636,7 +649,8 @@ shopifyRouter.get("/order-communication", async (req, res) => {
             "X-Shopify-Access-Token": connection.access_token,
           },
           body: JSON.stringify({
-            query: `{ order(id: "${orderId}") { email customer { email } } }`,
+            query: `query ($id: ID!) { order(id: $id) { email customer { email } } }`,
+            variables: { id: orderId },
           }),
           signal: controller.signal,
         });

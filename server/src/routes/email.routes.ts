@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
@@ -33,7 +34,7 @@ emailRouter.get("/:emailId", async (req, res) => {
     res.json({ email });
   } catch (err: any) {
     console.error("[EmailRoutes] GET /:emailId error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -61,14 +62,14 @@ emailRouter.patch("/:emailId/status", async (req, res) => {
       .eq("id", emailId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ success: true });
   } catch (err: any) {
     console.error("[EmailRoutes] PATCH /:emailId/status error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -106,14 +107,14 @@ emailRouter.post("/:emailId/assign", async (req, res) => {
       });
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ success: true });
   } catch (err: any) {
     console.error("[EmailRoutes] POST /:emailId/assign error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -134,7 +135,7 @@ emailRouter.post("/:emailId/unassign", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     console.error("[EmailRoutes] POST /:emailId/unassign error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -169,14 +170,14 @@ emailRouter.post("/:emailId/toggle-star", async (req, res) => {
       .eq("id", emailId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ success: true, is_starred: newStarred });
   } catch (err: any) {
     console.error("[EmailRoutes] POST /:emailId/toggle-star error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -198,14 +199,14 @@ emailRouter.post("/:emailId/read", async (req, res) => {
       .eq("id", emailId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
     res.json({ success: true });
   } catch (err: any) {
     console.error("[EmailRoutes] POST /:emailId/read error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -238,7 +239,7 @@ emailRouter.post("/:emailId/archive", async (req, res) => {
       .eq("id", emailId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
@@ -253,7 +254,7 @@ emailRouter.post("/:emailId/archive", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     console.error("[EmailRoutes] POST /:emailId/archive error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
 
@@ -286,7 +287,7 @@ emailRouter.delete("/:emailId", async (req, res) => {
       .eq("id", emailId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: safeErrorMessage(error) });
       return;
     }
 
@@ -301,6 +302,6 @@ emailRouter.delete("/:emailId", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     console.error("[EmailRoutes] DELETE /:emailId error:", err);
-    res.status(500).json({ error: err.message || "Internal server error" });
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
 });
