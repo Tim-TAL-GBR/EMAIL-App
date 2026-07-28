@@ -8,6 +8,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@expo/vector-icons';
 import { DraggableWindow } from '../ui/DraggableWindow';
 import { ChatFeed } from '../chat/ChatFeed';
+import { useEmailStore } from '../../stores/emailStore';
 import { useComposerStore } from '../../stores/composerStore';
 import { useInboxes } from '../../hooks/useInboxes';
 import { useSignatures } from '../../hooks/useSignatures';
@@ -90,6 +91,48 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [isUploading, setIsUploading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null);
+
+  // Autocomplete: collect all known email addresses from loaded threads
+  const threads = useEmailStore(s => s.threads);
+  const allContacts = useMemo(() => {
+    const seen = new Map<string, { address: string; count: number; lastSeen: string }>();
+    threads.forEach(t => {
+      (t.participants || []).forEach(addr => {
+        const lower = addr.toLowerCase();
+        const existing = seen.get(lower);
+        if (existing) {
+          existing.count++;
+          if (t.latestEmail?.received_at && t.latestEmail.received_at > existing.lastSeen) {
+            existing.lastSeen = t.latestEmail.received_at;
+          }
+        } else {
+          seen.set(lower, { address: addr, count: 1, lastSeen: t.latestEmail?.received_at || '' });
+        }
+      });
+    });
+    return Array.from(seen.values()).sort((a, b) => b.count - a.count);
+  }, [threads]);
+
+  const [autocompleteField, setAutocompleteField] = useState<'to' | 'cc' | 'bcc' | null>(null);
+  const [autocompleteQuery, setAutocompleteQuery] = useState('');
+
+  function getCurrentWord(value: string, cursorPos?: number) {
+    const parts = value.split(',');
+    const current = (parts[parts.length - 1] || '').trim();
+    return current;
+  }
+
+  const autocompleteSuggestions = useMemo(() => {
+    if (!autocompleteQuery || autocompleteQuery.length < 1) return [];
+    const q = autocompleteQuery.toLowerCase();
+    return allContacts.filter(c => c.address.toLowerCase().includes(q)).slice(0, 8);
+  }, [autocompleteQuery, allContacts]);
+
+  function replaceLastWord(value: string, newWord: string) {
+    const parts = value.split(',');
+    parts[parts.length - 1] = newWord;
+    return parts.join(', ');
+  }
 
   const originalBody = sourceEmail?.body_text || '';
   const quotedBody = useMemo(() => originalBody.split('\n').map(line => `> ${line}`).join('\n'), [originalBody]);
@@ -211,11 +254,21 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     if (saveStatus === 'saved') setSaveStatus(null);
   }, [saveStatus]);
 
-  const onToChange = useCallback((v: string) => { setTo(v); resetSaveStatus(); }, [resetSaveStatus]);
-  const onCcChange = useCallback((v: string) => { setCc(v); resetSaveStatus(); }, [resetSaveStatus]);
-  const onBccChange = useCallback((v: string) => { setBcc(v); resetSaveStatus(); }, [resetSaveStatus]);
+  const onToChange = useCallback((v: string) => { setTo(v); setAutocompleteField('to'); setAutocompleteQuery(getCurrentWord(v)); resetSaveStatus(); }, [resetSaveStatus]);
+  const onCcChange = useCallback((v: string) => { setCc(v); setAutocompleteField('cc'); setAutocompleteQuery(getCurrentWord(v)); resetSaveStatus(); }, [resetSaveStatus]);
+  const onBccChange = useCallback((v: string) => { setBcc(v); setAutocompleteField('bcc'); setAutocompleteQuery(getCurrentWord(v)); resetSaveStatus(); }, [resetSaveStatus]);
   const onSubjectChange = useCallback((v: string) => { setSubject(v); resetSaveStatus(); }, [resetSaveStatus]);
   const onBodyChange = useCallback((v: string) => { setBody(v); resetSaveStatus(); }, [resetSaveStatus]);
+
+  const selectSuggestion = useCallback((address: string) => {
+    switch (autocompleteField) {
+      case 'to': setTo(prev => replaceLastWord(prev, address)); break;
+      case 'cc': setCc(prev => replaceLastWord(prev, address)); break;
+      case 'bcc': setBcc(prev => replaceLastWord(prev, address)); break;
+    }
+    setAutocompleteField(null);
+    setAutocompleteQuery('');
+  }, [autocompleteField]);
 
   const invalidTo = useMemo(() => to ? findInvalidEmails(to) : [], [to]);
   const invalidCc = useMemo(() => cc ? findInvalidEmails(cc) : [], [cc]);
@@ -456,13 +509,25 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               style={[styles.input, invalidTo.length > 0 && { color: Colors.error }]}
               value={to}
               onChangeText={onToChange}
-              placeholder="empfaenger@beispiel.de"
+              onFocus={() => { setAutocompleteField('to'); setAutocompleteQuery(getCurrentWord(to)); }}
+              onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
+              placeholder="E-Mail-Adressen (durch Komma getrennt)"
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
             />
             {invalidTo.length > 0 && (
               <Text style={styles.validationHint}>{invalidTo.join(', ')}</Text>
+            )}
+            {autocompleteField === 'to' && autocompleteSuggestions.length > 0 && (
+              <View style={styles.autocompleteDropdown}>
+                {autocompleteSuggestions.map(s => (
+                  <TouchableOpacity key={s.address} style={styles.autocompleteItem} onPress={() => selectSuggestion(s.address)}>
+                    <Text style={styles.autocompleteText} numberOfLines={1}>{s.address}</Text>
+                    {s.count > 1 && <Text style={styles.autocompleteCount}>{s.count}</Text>}
+                  </TouchableOpacity>
+                ))}
+              </View>
             )}
           </View>
         </View>
@@ -474,13 +539,25 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               style={[styles.input, invalidCc.length > 0 && { color: Colors.error }]}
               value={cc}
               onChangeText={onCcChange}
-              placeholder="optional@beispiel.de"
+              onFocus={() => { setAutocompleteField('cc'); setAutocompleteQuery(getCurrentWord(cc)); }}
+              onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
+              placeholder="E-Mail-Adressen (durch Komma getrennt)"
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
             />
             {invalidCc.length > 0 && (
               <Text style={styles.validationHint}>{invalidCc.join(', ')}</Text>
+            )}
+            {autocompleteField === 'cc' && autocompleteSuggestions.length > 0 && (
+              <View style={styles.autocompleteDropdown}>
+                {autocompleteSuggestions.map(s => (
+                  <TouchableOpacity key={s.address} style={styles.autocompleteItem} onPress={() => selectSuggestion(s.address)}>
+                    <Text style={styles.autocompleteText} numberOfLines={1}>{s.address}</Text>
+                    {s.count > 1 && <Text style={styles.autocompleteCount}>{s.count}</Text>}
+                  </TouchableOpacity>
+                ))}
+              </View>
             )}
           </View>
           <TouchableOpacity onPress={() => setShowBcc(!showBcc)} style={{ paddingLeft: Spacing.sm }}>
@@ -496,13 +573,25 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
                 style={[styles.input, invalidBcc.length > 0 && { color: Colors.error }]}
                 value={bcc}
                 onChangeText={onBccChange}
-                placeholder="blindkopie@beispiel.de"
+                onFocus={() => { setAutocompleteField('bcc'); setAutocompleteQuery(getCurrentWord(bcc)); }}
+                onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
+                placeholder="E-Mail-Adressen (durch Komma getrennt)"
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="email-address"
               />
               {invalidBcc.length > 0 && (
                 <Text style={styles.validationHint}>{invalidBcc.join(', ')}</Text>
+              )}
+              {autocompleteField === 'bcc' && autocompleteSuggestions.length > 0 && (
+                <View style={styles.autocompleteDropdown}>
+                  {autocompleteSuggestions.map(s => (
+                    <TouchableOpacity key={s.address} style={styles.autocompleteItem} onPress={() => selectSuggestion(s.address)}>
+                      <Text style={styles.autocompleteText} numberOfLines={1}>{s.address}</Text>
+                      {s.count > 1 && <Text style={styles.autocompleteCount}>{s.count}</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </View>
               )}
             </View>
           </View>
@@ -767,6 +856,38 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.warning,
     flex: 1,
+  },
+  autocompleteDropdown: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.sm,
+    marginTop: 4,
+    maxHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  autocompleteItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  autocompleteText: {
+    fontSize: FontSize.sm,
+    color: Colors.text,
+    flex: 1,
+  },
+  autocompleteCount: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    marginLeft: Spacing.sm,
   },
   attachBtn: {
     padding: Spacing.sm,
