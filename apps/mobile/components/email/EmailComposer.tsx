@@ -63,6 +63,18 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' || Platform.OS === 'macos' || width > 768;
 
+  // Kill browser autofill on web
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'web') return;
+    const id = setTimeout(() => {
+      document.querySelectorAll('input[type="email"]').forEach((el: any) => {
+        el.setAttribute('autocomplete', 'off');
+        el.setAttribute('name', 'email_' + Math.random().toString(36).slice(2, 8));
+      });
+    }, 50);
+    return () => clearTimeout(id);
+  }, [visible]);
+
   const { draft, saveDraft, deleteDraft, isLoading: draftLoading } = useDraft(
     inboxId,
     sourceEmail?.thread_id,
@@ -511,10 +523,10 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               onChangeText={onToChange}
               onFocus={() => { setAutocompleteField('to'); setAutocompleteQuery(getCurrentWord(to)); }}
               onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
-              placeholder="E-Mail-Adressen (durch Komma getrennt)"
+              placeholder="E-Mail-Adressen"
+              autoComplete="off"
               autoCapitalize="none"
               autoCorrect={false}
-              keyboardType="email-address"
             />
             {invalidTo.length > 0 && (
               <Text style={styles.validationHint}>{invalidTo.join(', ')}</Text>
@@ -541,10 +553,10 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               onChangeText={onCcChange}
               onFocus={() => { setAutocompleteField('cc'); setAutocompleteQuery(getCurrentWord(cc)); }}
               onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
-              placeholder="E-Mail-Adressen (durch Komma getrennt)"
+              placeholder="E-Mail-Adressen"
+              autoComplete="off"
               autoCapitalize="none"
               autoCorrect={false}
-              keyboardType="email-address"
             />
             {invalidCc.length > 0 && (
               <Text style={styles.validationHint}>{invalidCc.join(', ')}</Text>
@@ -575,10 +587,10 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
                 onChangeText={onBccChange}
                 onFocus={() => { setAutocompleteField('bcc'); setAutocompleteQuery(getCurrentWord(bcc)); }}
                 onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
-                placeholder="E-Mail-Adressen (durch Komma getrennt)"
+                placeholder="E-Mail-Adressen"
+                autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect={false}
-                keyboardType="email-address"
               />
               {invalidBcc.length > 0 && (
                 <Text style={styles.validationHint}>{invalidBcc.join(', ')}</Text>
