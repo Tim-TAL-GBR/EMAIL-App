@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from './authStore';
 
+const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 export interface Label {
   id: string;
   team_id: string;
@@ -62,28 +64,35 @@ export const useLabelStore = create<LabelState>((set, get) => ({
 
   addLabelToEmail: async (emailId: string, labelId: string) => {
     try {
-      const { error } = await supabase
-        .from('email_labels')
-        .insert({ email_id: emailId, label_id: labelId });
-        
-      if (error) throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${API_URL}/api/emails/${emailId}/labels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ labelId, action: 'add' }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to add label');
       return { error: null };
     } catch (error: any) {
-      return { error };
+      console.warn('[LabelStore] addLabelToEmail error, falling back to direct Supabase:', error.message);
+      const { error: sbError } = await supabase.from('email_labels').insert({ email_id: emailId, label_id: labelId });
+      return { error: sbError || error };
     }
   },
 
   removeLabelFromEmail: async (emailId: string, labelId: string) => {
     try {
-      const { error } = await supabase
-        .from('email_labels')
-        .delete()
-        .match({ email_id: emailId, label_id: labelId });
-        
-      if (error) throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${API_URL}/api/emails/${emailId}/labels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ labelId, action: 'remove' }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to remove label');
       return { error: null };
     } catch (error: any) {
-      return { error };
+      console.warn('[LabelStore] removeLabelFromEmail error, falling back to direct Supabase:', error.message);
+      const { error: sbError } = await supabase.from('email_labels').delete().match({ email_id: emailId, label_id: labelId });
+      return { error: sbError || error };
     }
   }
 }));

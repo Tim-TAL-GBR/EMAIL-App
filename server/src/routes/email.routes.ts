@@ -3,6 +3,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { canAccessEmail } from "../realtime/guards.js";
+import { ImapClient } from "../mail/ImapClient.js";
 
 export const emailRouter: Router = Router();
 
@@ -302,6 +303,65 @@ emailRouter.delete("/:emailId", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     console.error("[EmailRoutes] DELETE /:emailId error:", err);
+    res.status(500).json({ error: safeErrorMessage(err) });
+  }
+});
+
+// ─── Label Sync (IMAP keywords) ────────────────────────────────────────────
+emailRouter.post("/:emailId/labels", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const { emailId } = req.params;
+    const { labelId, action } = req.body;
+
+    if (!labelId || !['add', 'remove'].includes(action)) {
+      res.status(400).json({ error: "labelId and action ('add'|'remove') required" });
+      return;
+    }
+
+    const hasAccess = await canAccessEmail(userId, emailId);
+    if (!hasAccess) {
+      res.status(403).json({ error: "No access to this email" });
+      return;
+    }
+
+    const supabase = getSupabaseAdmin();
+
+    // 1. Update DB
+    if (action === 'add') {
+      const { error: insertErr } = await supabase.from('email_labels').insert({ email_id: emailId, label_id: labelId });
+      if (insertErr && insertErr.code !== '23505') {
+        res.status(500).json({ error: safeErrorMessage(insertErr) });
+        return;
+      }
+    } else {
+      await supabase.from('email_labels').delete().match({ email_id: emailId, label_id: labelId });
+    }
+
+    // 2. Sync to IMAP
+    const { data: email } = await supabase
+      .from("emails")
+      .select("inbox_id, imap_uid, mailbox_name")
+      .eq("id", emailId)
+      .single();
+
+    if (email?.imap_uid) {
+      const { mailManager } = await import("../mail/MailManager.js");
+      const client = mailManager.getClient(email.inbox_id);
+      const keyword = ImapClient.imapKeyword(labelId);
+      if (client) {
+        const mailbox = email.mailbox_name === "INBOX" ? "INBOX" : email.mailbox_name;
+        if (action === 'add') {
+          await client.addLabelFlag(email.imap_uid, keyword, mailbox);
+        } else {
+          await client.removeLabelFlag(email.imap_uid, keyword, mailbox);
+        }
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("[EmailRoutes] POST /:emailId/labels error:", err);
     res.status(500).json({ error: safeErrorMessage(err) });
   }
 });

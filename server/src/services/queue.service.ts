@@ -36,6 +36,7 @@ export interface ProcessEmailJob {
   inReplyTo: string | null;
   threadId: string | null; // Calculated by ImapClient or Worker
   isRead: boolean;
+  imapFlags?: string[];
   attachments?: Array<{
     file_name: string;
     content_type: string;
@@ -150,7 +151,46 @@ export function startEmailWorker() {
       }
     }
 
-    // 4. Send push notification if it's a new open email in the primary INBOX (not archived/deleted)
+    // 4. Import IMAP flags → TeamMail labels
+    const teamMailFlags = data.imapFlags?.filter(f => f.startsWith('$TeamMail-'));
+    if (teamMailFlags?.length && insertedEmail?.id) {
+      for (const flag of teamMailFlags) {
+        try {
+          // Derive label name from flag (e.g. "$TeamMail-abc123" → "abc123")
+          const labelName = `IMAP-${flag.slice(10, 18)}`;
+          // Check if label with this keyword already exists for this team
+          const { data: existingLabel } = await supabase
+            .from('labels')
+            .select('id')
+            .eq('team_id', data.teamId)
+            .eq('name', labelName)
+            .maybeSingle();
+
+          let labelId = existingLabel?.id;
+          if (!labelId) {
+            const { data: newLabel } = await supabase
+              .from('labels')
+              .insert({ team_id: data.teamId, name: labelName, color: '#6366F1' })
+              .select('id')
+              .single();
+            labelId = newLabel?.id;
+          }
+
+          if (labelId) {
+            const { error: elErr } = await supabase
+              .from('email_labels')
+              .insert({ email_id: insertedEmail.id, label_id: labelId });
+            if (elErr && elErr.code !== '23505') {
+              console.error(`[Queue] Failed to insert email_label:`, elErr);
+            }
+          }
+        } catch (e) {
+          console.error(`[Queue] Failed to sync IMAP flag ${flag}:`, e);
+        }
+      }
+    }
+
+    // 5. Send push notification if it's a new open email in the primary INBOX (not archived/deleted)
     if (!data.isRead && mailboxName === "INBOX" && !isArchived && !isDeleted && mappedDirection === "inbound") {
       try {
         await notifyTeamMembers(data.inboxId, data.subject, data.fromName);

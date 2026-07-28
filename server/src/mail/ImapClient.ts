@@ -194,12 +194,12 @@ export class ImapClient {
 
       for (const seq of fetchArr) {
         // Fetch full message source
-        const message = await this.client.fetchOne(seq, { source: true, uid: true });
+        const message = await this.client.fetchOne(seq, { source: true, uid: true, flags: true });
         
         if (message && message.source) {
-          console.log(`[ImapClient] Fetched msg ${seq} uid ${message.uid}`);
+          console.log(`[ImapClient] Fetched msg ${seq} uid ${message.uid} flags:`, message.flags);
           const isUnseen = (unseenSeq || []).includes(seq);
-          await this.processMessage(message.source, message.uid, !isUnseen, mailboxPath);
+          await this.processMessage(message.source, message.uid, !isUnseen, mailboxPath, message.flags ? [...message.flags] : undefined);
           
           if (isUnseen) {
             // Mark as seen
@@ -222,7 +222,11 @@ export class ImapClient {
     return path; // Custom folders use the actual path
   }
 
-  private async processMessage(source: Buffer, uid: number, isSeenOnServer: boolean, mailboxPath: string): Promise<void> {
+  static imapKeyword(labelId: string): string {
+    return `$TeamMail-${labelId.replace(/-/g, '').slice(0, 12)}`;
+  }
+
+  private async processMessage(source: Buffer, uid: number, isSeenOnServer: boolean, mailboxPath: string, flags?: string[]): Promise<void> {
     try {
       const supabase = getSupabaseAdmin();
       const parsed: ParsedMail = await simpleParser(source);
@@ -307,7 +311,8 @@ export class ImapClient {
         threadId: null, // Worker will calculate if null
         isRead: isSeenOnServer,
         attachments: processedAttachments,
-        mailboxName: this.mailboxNameForPath(mailboxPath)
+        mailboxName: this.mailboxNameForPath(mailboxPath),
+        imapFlags: flags?.filter(f => f.startsWith('$TeamMail-'))
       });
 
       console.log(`[ImapClient] Queued email for processing: ${subject}`);
@@ -408,6 +413,24 @@ export class ImapClient {
       // Some servers might not have an archive folder but support custom flags
       await this.client.messageFlagsAdd({ uid }, ["Archive"], { uid: true });
     }
+  }
+
+  public async addLabelFlag(uid: number, keyword: string, mailbox: string = "INBOX"): Promise<void> {
+    if (!this.isConnected) await this.connect();
+    if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
+      await this.client.mailboxOpen(mailbox);
+    }
+    await this.client.messageFlagsAdd({ uid }, [keyword], { uid: true });
+    console.log(`[ImapClient] Added flag ${keyword} to uid ${uid} in ${mailbox}`);
+  }
+
+  public async removeLabelFlag(uid: number, keyword: string, mailbox: string = "INBOX"): Promise<void> {
+    if (!this.isConnected) await this.connect();
+    if (!this.client.mailbox || (this.client.mailbox as any).path !== mailbox) {
+      await this.client.mailboxOpen(mailbox);
+    }
+    await this.client.messageFlagsRemove({ uid }, [keyword], { uid: true });
+    console.log(`[ImapClient] Removed flag ${keyword} from uid ${uid} in ${mailbox}`);
   }
 
   public async appendSentMessage(rawEml: string): Promise<void> {
