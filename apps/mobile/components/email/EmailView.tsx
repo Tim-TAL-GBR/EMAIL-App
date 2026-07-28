@@ -29,6 +29,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const selectedThread = threads.find(t => t.id === threadId);
 
   useEffect(() => {
+    setShopifyResult(null);
+    setShowShopifyPanel(false);
     const run = async () => {
       if (selectedThread && selectedThread.latestEmail) {
         const unreadEmailIds = selectedThread.emails.filter(e => !e.is_read).map(e => e.id);
@@ -104,7 +106,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>({ field: 'from', operator: 'equals', value: '' });
   const [taskComposerVisible, setTaskComposerVisible] = useState(false);
   const [showShopifyPanel, setShowShopifyPanel] = useState(false);
-  const [shopifyHasCustomer, setShopifyHasCustomer] = useState<boolean | null>(null);
+  const [shopifyResult, setShopifyResult] = useState<{ connected: boolean; hasCustomer: boolean } | null>(null);
 
   const handleStatusChange = async (id: string, status: 'open' | 'in_progress' | 'done') => {
     await updateEmailStatus(id, status);
@@ -289,13 +291,15 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             <View style={styles.subjectContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
                 <Text style={styles.subjectText} numberOfLines={1}>{selectedThread.subject}</Text>
-                <TouchableOpacity
-                  style={[styles.shopifyChip, showShopifyPanel && styles.shopifyChipActive, shopifyHasCustomer === true && !showShopifyPanel && styles.shopifyChipFound, shopifyHasCustomer === false && !showShopifyPanel && styles.shopifyChipNotFound]}
-                  onPress={() => setShowShopifyPanel(!showShopifyPanel)}
-                >
-                  <Feather name="shopping-bag" size={13} color={showShopifyPanel ? '#FFF' : shopifyHasCustomer === false ? '#C62828' : '#96BF48'} />
-                  <Text style={[styles.shopifyChipText, showShopifyPanel && styles.shopifyChipTextActive, shopifyHasCustomer === false && !showShopifyPanel && styles.shopifyChipTextNotFound]}>Shopify</Text>
-                </TouchableOpacity>
+                {shopifyResult?.connected && (
+                  <TouchableOpacity
+                    style={[styles.shopifyChip, showShopifyPanel && styles.shopifyChipActive, shopifyResult.hasCustomer && !showShopifyPanel && styles.shopifyChipFound, !shopifyResult.hasCustomer && !showShopifyPanel && styles.shopifyChipNotFound]}
+                    onPress={() => setShowShopifyPanel(!showShopifyPanel)}
+                  >
+                    <Feather name="shopping-bag" size={13} color={showShopifyPanel ? '#FFF' : !shopifyResult.hasCustomer ? '#C62828' : '#96BF48'} />
+                    <Text style={[styles.shopifyChipText, showShopifyPanel && styles.shopifyChipTextActive, !shopifyResult.hasCustomer && !showShopifyPanel && styles.shopifyChipTextNotFound]}>Shopify</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           </View>
@@ -309,7 +313,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             email={selectedThread.latestEmail.from_address} 
             teamId={selectedThread.latestEmail.team_id}
             detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
-            onResult={(has) => setShopifyHasCustomer(has)}
+            onResult={(result) => setShopifyResult(result)}
           />
         </View>
       )}

@@ -7,7 +7,7 @@ interface ShopifyCustomerCardProps {
   email: string;
   teamId?: string;
   detectedOrderNumber?: string;
-  onResult?: (hasCustomer: boolean) => void;
+  onResult?: (result: { connected: boolean; hasCustomer: boolean }) => void;
 }
 
 export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResult }: ShopifyCustomerCardProps) {
@@ -47,7 +47,7 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
 
         if (response.status === 404) {
           setData(null);
-          onResult?.(false);
+          onResult?.({ connected: false, hasCustomer: false });
           return;
         }
 
@@ -57,7 +57,7 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
 
         const json = await response.json();
         setData(json);
-        onResult?.(!!json.customer);
+        onResult?.({ connected: true, hasCustomer: !!json.customer });
       } catch (err: any) {
         setError(err.message);
       } finally {
