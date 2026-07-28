@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
+import { useInboxes } from '../../../hooks/useInboxes';
 
 export default function LabelsSettingsScreen() {
+  const { inboxes } = useInboxes();
+  const teamName = React.useMemo(() => {
+    const teams = new Map<string, string>();
+    inboxes.forEach(i => { if (i.team?.name && !teams.has(i.team.id)) teams.set(i.team.id, i.team.name); });
+    return teams.values().next().value || 'Organisation';
+  }, [inboxes]);
+
   const [selectedItem, setSelectedItem] = useState<'org' | 'email'>('org');
 
   const renderOrgContent = () => (
@@ -188,10 +196,10 @@ export default function LabelsSettingsScreen() {
             onPress={() => setSelectedItem('org')}
           >
             <View style={styles.orgAvatar}>
-              <Text style={styles.orgAvatarText}>CC</Text>
+              <Text style={styles.orgAvatarText}>{teamName.substring(0, 2).toUpperCase()}</Text>
             </View>
             <View>
-              <Text style={[styles.sidebarItemTitle, selectedItem === 'org' && styles.sidebarItemTitleActive]}>CF Celle GmbH</Text>
+              <Text style={[styles.sidebarItemTitle, selectedItem === 'org' && styles.sidebarItemTitleActive]}>{teamName}</Text>
               <Text style={[styles.sidebarItemSubtitle, selectedItem === 'org' && styles.sidebarItemSubtitleActive]}>3 labels</Text>
             </View>
           </TouchableOpacity>
@@ -209,10 +217,10 @@ export default function LabelsSettingsScreen() {
             {selectedItem === 'org' ? (
               <>
                 <View style={styles.headerAvatar}>
-                  <Text style={styles.headerAvatarText}>CC</Text>
+                  <Text style={styles.headerAvatarText}>{teamName.substring(0, 2).toUpperCase()}</Text>
                 </View>
                 <View>
-                  <Text style={styles.mainHeaderTitle}>CF Celle GmbH</Text>
+                  <Text style={styles.mainHeaderTitle}>{teamName}</Text>
                   <Text style={styles.mainHeaderSubtitle}>Labels</Text>
                 </View>
               </>

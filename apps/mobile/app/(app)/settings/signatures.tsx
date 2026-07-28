@@ -5,6 +5,7 @@ import { useSignatures, Signature } from '../../../hooks/useSignatures';
 import { useInboxes } from '../../../hooks/useInboxes';
 import { supabase } from '../../../lib/supabase';
 import { useAuthStore } from '../../../stores/authStore';
+import { UserEmailAssignments } from '../../../components/settings/UserEmailAssignments';
 
 export default function SignaturesSettingsScreen() {
   const { user } = useAuthStore();
@@ -12,9 +13,61 @@ export default function SignaturesSettingsScreen() {
   const { inboxes, refetch: refetchInboxes } = useInboxes();
 
   const [selectedItem, setSelectedItem] = useState<'you' | 'org'>('you');
+  const [orgTab, setOrgTab] = useState<'signatures' | 'assignments'>('signatures');
 
   const personalSignatures = signatures.filter(s => s.scope === 'private');
-  const orgSignatures = signatures.filter(s => s.scope === 'team');
+
+  const [allTeams, setAllTeams] = useState<{ id: string; name: string }[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchTeams = async () => {
+      try {
+        const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${API_URL}/api/teams`, {
+          headers: { 'Authorization': `Bearer ${session?.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAllTeams(data);
+          if (data.length > 0 && !selectedTeamId) {
+            setSelectedTeamId(data[0].id);
+          }
+        }
+      } catch (e) { console.warn('Error fetching teams:', e); }
+    };
+    fetchTeams();
+  }, []);
+
+  const selectedTeam = allTeams.find(t => t.id === selectedTeamId);
+  const orgSignatures = signatures.filter(s => s.scope === 'team' && s.team_id === selectedTeamId);
+
+  const teams = React.useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    inboxes.forEach(i => {
+      if (i.team?.id && !map.has(i.team.id)) {
+        map.set(i.team.id, i.team);
+      }
+    });
+    return Array.from(map.values());
+  }, [inboxes]);
+
+  interface InboxAlias {
+    id: string;
+    inbox_id: string;
+    email_address: string;
+    name: string | null;
+    signature_id: string | null;
+  }
+  const [aliases, setAliases] = useState<InboxAlias[]>([]);
+
+  const fetchAliases = async () => {
+    const { data } = await supabase.from('inbox_aliases').select('id, inbox_id, email_address, name, signature_id');
+    if (data) setAliases(data);
+  };
+
+  useEffect(() => { fetchAliases(); }, []);
 
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
   
@@ -34,6 +87,7 @@ export default function SignaturesSettingsScreen() {
   const [signatureName, setSignatureName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedInboxes, setSelectedInboxes] = useState<Record<string, boolean>>({});
+  const [selectedAliases, setSelectedAliases] = useState<Record<string, boolean>>({});
 
   // When modal opens, populate state
   const handleEdit = (sig: Signature) => {
@@ -44,12 +98,21 @@ export default function SignaturesSettingsScreen() {
     const inboxMap: Record<string, boolean> = {};
     relatedInboxes.forEach(i => inboxMap[i.id] = true);
     setSelectedInboxes(inboxMap);
+
+    const relatedAliases = aliases.filter(a => a.signature_id === sig.id);
+    const aliasMap: Record<string, boolean> = {};
+    relatedAliases.forEach(a => aliasMap[a.id] = true);
+    setSelectedAliases(aliasMap);
     
     setIsModalVisible(true);
   };
 
   const handleToggleInbox = (inboxId: string) => {
     setSelectedInboxes(prev => ({ ...prev, [inboxId]: !prev[inboxId] }));
+  };
+
+  const handleToggleAlias = (aliasId: string) => {
+    setSelectedAliases(prev => ({ ...prev, [aliasId]: !prev[aliasId] }));
   };
 
   const handleUpdateSignature = async () => {
@@ -63,9 +126,9 @@ export default function SignaturesSettingsScreen() {
         .eq('id', activeSignature.id);
       if (sigError) throw sigError;
 
-      // 2. Update aliases (inboxes)
-      const currentlyAssigned = inboxes.filter(i => i.signature_id === activeSignature.id);
-      for (const inbox of currentlyAssigned) {
+      // 2. Update inbox assignments
+      const currentlyAssignedInboxes = inboxes.filter(i => i.signature_id === activeSignature.id);
+      for (const inbox of currentlyAssignedInboxes) {
         if (!selectedInboxes[inbox.id]) {
           await supabase.from('inboxes').update({ signature_id: null }).eq('id', inbox.id);
         }
@@ -77,10 +140,25 @@ export default function SignaturesSettingsScreen() {
         }
       }
 
+      // 3. Update alias assignments
+      const currentlyAssignedAliases = aliases.filter(a => a.signature_id === activeSignature.id);
+      for (const alias of currentlyAssignedAliases) {
+        if (!selectedAliases[alias.id]) {
+          await supabase.from('inbox_aliases').update({ signature_id: null }).eq('id', alias.id);
+        }
+      }
+
+      for (const [aliasId, isChecked] of Object.entries(selectedAliases)) {
+        if (isChecked) {
+          await supabase.from('inbox_aliases').update({ signature_id: activeSignature.id }).eq('id', aliasId);
+        }
+      }
+
       Alert.alert('Erfolg', 'Signatur wurde aktualisiert.');
       setIsModalVisible(false);
       refetchSignatures();
       refetchInboxes();
+      fetchAliases();
     } catch (e: any) {
       Alert.alert('Fehler', e.message);
     } finally {
@@ -90,9 +168,14 @@ export default function SignaturesSettingsScreen() {
 
   const handleCreateSignature = async (scope: 'private' | 'team') => {
     try {
+      const teamId = scope === 'team' && selectedTeamId ? selectedTeamId : null;
+      if (scope === 'team' && !teamId) {
+        Alert.alert('Fehler', 'Kein Team gefunden. Bitte zuerst einem Team beitreten.');
+        return;
+      }
       const { data, error } = await supabase.from('signatures').insert([{
         owner_id: scope === 'private' ? user?.id : null,
-        team_id: null,
+        team_id: teamId,
         scope,
         name: scope === 'private' ? 'Neue Persönliche Signatur' : 'Neue Team Signatur',
         content_text: 'Ihre Signatur hier...'
@@ -107,18 +190,23 @@ export default function SignaturesSettingsScreen() {
   };
 
   const handleDeleteSignature = async (id: string) => {
-    Alert.alert('Löschen bestätigen', 'Willst du diese Signatur wirklich löschen?', [
-      { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Löschen', style: 'destructive', onPress: async () => {
-        try {
-          await supabase.from('signatures').delete().eq('id', id);
-          refetchSignatures();
-          if (selectedSignatureId === id) setSelectedSignatureId(null);
-        } catch (e: any) {
-          Alert.alert('Fehler', e.message);
-        }
-      }}
-    ]);
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm('Willst du diese Signatur wirklich löschen?')
+      : await new Promise(resolve => Alert.alert('Löschen bestätigen', 'Willst du diese Signatur wirklich löschen?', [
+          { text: 'Abbrechen', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Löschen', style: 'destructive', onPress: () => resolve(true) },
+        ]));
+    if (!confirmed) return;
+    try {
+      const { error } = await supabase.from('signatures').delete().eq('id', id);
+      if (error) throw error;
+      refetchSignatures();
+      refetchInboxes();
+      fetchAliases();
+      if (selectedSignatureId === id) setSelectedSignatureId(null);
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    }
   };
 
   return (
@@ -155,17 +243,11 @@ export default function SignaturesSettingsScreen() {
             <View style={styles.modalMain}>
               <View style={styles.modalHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {selectedItem === 'you' ? (
-                    <View style={[styles.headerAvatar, { backgroundColor: '#00B388', width: 40, height: 40, borderRadius: 20 }]}>
-                      <Text style={[styles.headerAvatarText, { fontSize: 16 }]}>TR</Text>
-                    </View>
-                  ) : (
-                    <View style={[styles.headerAvatar, { backgroundColor: '#F06A6A', width: 40, height: 40, borderRadius: 20 }]}>
-                      <Text style={[styles.headerAvatarText, { fontSize: 16 }]}>CC</Text>
-                    </View>
-                  )}
+                  <View style={[styles.headerAvatar, { backgroundColor: selectedItem === 'you' ? '#00B388' : '#F06A6A', width: 40, height: 40, borderRadius: 20 }]}>
+                    <Text style={[styles.headerAvatarText, { fontSize: 16 }]}>{selectedItem === 'you' ? (user?.email?.substring(0,2).toUpperCase() || 'DU') : (selectedTeam?.name?.substring(0,2).toUpperCase() || 'OR')}</Text>
+                  </View>
                   <View>
-                    <Text style={styles.modalTitle}>{selectedItem === 'you' ? 'Du' : 'CF Celle GmbH'}</Text>
+                    <Text style={styles.modalTitle}>{selectedItem === 'you' ? 'Du' : (selectedTeam?.name || 'Organisation')}</Text>
                     <Text style={styles.modalSubtitle}>{selectedItem === 'you' ? 'Persönliche Signatur bearbeiten' : 'Geteilte Signatur bearbeiten'}</Text>
                   </View>
                 </View>
@@ -173,78 +255,85 @@ export default function SignaturesSettingsScreen() {
 
               {modalTab === 'signature' ? (
                 <View style={styles.modalBody}>
-                  {selectedItem === 'you' ? (
-                    <>
-                      <Text style={styles.modalLabel}>Beschreibung</Text>
-                      <TextInput 
-                        style={styles.modalInput} 
-                        value={signatureName}
-                        onChangeText={setSignatureName}
-                      />
-                      <Text style={[styles.modalLabel, { marginTop: Spacing.xl }]}>Inhalt</Text>
-                    </>
-                  ) : (
-                    <Text style={styles.modalLabel}>Signaturvorschau</Text>
-                  )}
+                  <Text style={styles.modalLabel}>Beschreibung</Text>
+                  <TextInput 
+                    style={styles.modalInput} 
+                    value={signatureName}
+                    onChangeText={setSignatureName}
+                  />
+                  <Text style={[styles.modalLabel, { marginTop: Spacing.xl }]}>Inhalt</Text>
                   
                   <View style={styles.textAreaContainer}>
-                    <ScrollView>
-                      {selectedItem === 'you' ? (
-                        <TextInput 
-                          style={styles.textAreaText} 
-                          multiline 
-                          value={signatureTextState}
-                          onChangeText={setSignatureTextState}
-                        />
-                      ) : (
-                        <Text style={styles.textAreaText}>{signatureTextState}</Text>
-                      )}
-                    </ScrollView>
+                    <TextInput 
+                      style={styles.textAreaText} 
+                      multiline 
+                      value={signatureTextState}
+                      onChangeText={setSignatureTextState}
+                      textAlignVertical="top"
+                    />
                   </View>
                 </View>
               ) : (
                 <View style={styles.modalBody}>
                   <View style={styles.infoBoxTop}>
                     <Text style={styles.infoIconBox}>❔</Text>
-                    <Text style={styles.infoText}>Wähle die Aliasse aus, für die diese Signatur verwendet werden soll.</Text>
+                    <Text style={styles.infoText}>Wähle die E-Mail-Adressen aus, für die diese Signatur verwendet werden soll.</Text>
                   </View>
 
-                  <View style={styles.table}>
-                    <View style={styles.tableHeader}>
-                      <Text style={[styles.tableHeaderText, { flex: 2 }]}>Aliasse</Text>
-                      <Text style={[styles.tableHeaderText, { flex: 3 }]}>Typ</Text>
-                      <Text style={[styles.tableHeaderText, { width: 80, textAlign: 'center' }]}>Anwenden</Text>
-                    </View>
-                    
+                  <ScrollView>
                     {inboxes.map(inbox => {
-                      const isChecked = !!selectedInboxes[inbox.id];
+                      const inboxAliases = aliases.filter(a => a.inbox_id === inbox.id);
+                      const isMainChecked = !!selectedInboxes[inbox.id];
                       return (
-                        <TouchableOpacity 
-                          key={inbox.id} 
-                          style={styles.tableRow}
-                          onPress={() => handleToggleInbox(inbox.id)}
-                        >
-                          <Text style={[styles.tableCellText, { flex: 2 }]} numberOfLines={1}>{inbox.email_address}</Text>
-                          <Text style={[styles.tableCellText, { flex: 3 }]} numberOfLines={1}>{inbox.name} ({inbox.type})</Text>
-                          <View style={{ width: 80, alignItems: 'center' }}>
-                            {isChecked ? (
-                              <View style={styles.checkboxChecked}>
-                                <Text style={styles.checkmark}>✓</Text>
-                              </View>
-                            ) : (
-                              <View style={styles.checkboxUnchecked} />
-                            )}
-                          </View>
-                        </TouchableOpacity>
+                        <View key={inbox.id} style={{ marginBottom: Spacing.sm }}>
+                          <TouchableOpacity 
+                            style={[styles.tableRow, { backgroundColor: Colors.surfaceHover }]}
+                            onPress={() => handleToggleInbox(inbox.id)}
+                          >
+                            <Text style={[styles.tableCellText, { flex: 2, fontWeight: 'bold' }]} numberOfLines={1}>{inbox.email_address}</Text>
+                            <Text style={[styles.tableCellText, { flex: 3 }]} numberOfLines={1}>{inbox.name} ({inbox.type})</Text>
+                            <View style={{ width: 80, alignItems: 'center' }}>
+                              {isMainChecked ? (
+                                <View style={styles.checkboxChecked}>
+                                  <Text style={styles.checkmark}>✓</Text>
+                                </View>
+                              ) : (
+                                <View style={styles.checkboxUnchecked} />
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                          {inboxAliases.map(alias => {
+                            const isAliasChecked = !!selectedAliases[alias.id];
+                            return (
+                              <TouchableOpacity 
+                                key={alias.id} 
+                                style={[styles.tableRow, { paddingLeft: Spacing.xl }]}
+                                onPress={() => handleToggleAlias(alias.id)}
+                              >
+                                <Text style={[styles.tableCellText, { flex: 2 }]} numberOfLines={1}>{alias.email_address}</Text>
+                                <Text style={[styles.tableCellText, { flex: 3, color: Colors.textSecondary }]} numberOfLines={1}>{alias.name || 'Alias'}</Text>
+                                <View style={{ width: 80, alignItems: 'center' }}>
+                                  {isAliasChecked ? (
+                                    <View style={styles.checkboxChecked}>
+                                      <Text style={styles.checkmark}>✓</Text>
+                                    </View>
+                                  ) : (
+                                    <View style={styles.checkboxUnchecked} />
+                                  )}
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
                       );
                     })}
                     
                     {inboxes.length === 0 && (
                       <View style={{ padding: Spacing.xl, alignItems: 'center' }}>
-                        <Text style={{ color: Colors.textTertiary, fontFamily: FontFamily }}>Keine Aliasse vorhanden.</Text>
+                        <Text style={{ color: Colors.textTertiary, fontFamily: FontFamily }}>Keine E-Mail-Adressen vorhanden.</Text>
                       </View>
                     )}
-                  </View>
+                  </ScrollView>
                 </View>
               )}
 
@@ -288,18 +377,27 @@ export default function SignaturesSettingsScreen() {
           </TouchableOpacity>
 
           <Text style={[styles.sidebarSectionTitle, { marginTop: Spacing.md }]}>Organisations-Signaturen</Text>
-          <TouchableOpacity 
-            style={[styles.sidebarItem, selectedItem === 'org' && styles.sidebarItemActive]}
-            onPress={() => setSelectedItem('org')}
-          >
-            <View style={styles.orgAvatar}>
-              <Text style={styles.orgAvatarText}>OR</Text>
-            </View>
-            <View>
-              <Text style={[styles.sidebarItemTitle, selectedItem === 'org' && styles.sidebarItemTitleActive]}>Team Signaturen</Text>
-              <Text style={[styles.sidebarItemSubtitle, selectedItem === 'org' && styles.sidebarItemSubtitleActive]}>{orgSignatures.length} Signaturen</Text>
-            </View>
-          </TouchableOpacity>
+          {allTeams.map((team) => {
+            const teamSigs = signatures.filter(s => s.scope === 'team' && s.team_id === team.id);
+            return (
+              <TouchableOpacity 
+                key={team.id}
+                style={[styles.sidebarItem, selectedItem === 'org' && selectedTeamId === team.id && styles.sidebarItemActive]}
+                onPress={() => { setSelectedItem('org'); setSelectedTeamId(team.id); }}
+              >
+                <View style={styles.orgAvatar}>
+                  <Text style={[styles.orgAvatarText]}>{team.name.substring(0,2).toUpperCase()}</Text>
+                </View>
+                <View>
+                  <Text style={[styles.sidebarItemTitle, selectedItem === 'org' && selectedTeamId === team.id && styles.sidebarItemTitleActive]}>{team.name}</Text>
+                  <Text style={[styles.sidebarItemSubtitle, selectedItem === 'org' && selectedTeamId === team.id && styles.sidebarItemSubtitleActive]}>{teamSigs.length} Signaturen</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+          {allTeams.length === 0 && (
+            <Text style={[styles.sidebarItemSubtitle, { marginHorizontal: Spacing.sm, marginTop: Spacing.xs }]}>Keine Organisationen</Text>
+          )}
         </View>
 
         <View style={styles.sidebarFooterWrapper}>
@@ -315,21 +413,40 @@ export default function SignaturesSettingsScreen() {
           <View style={styles.headerTitleRow}>
             {selectedItem === 'you' ? (
               <View style={[styles.headerAvatar, { backgroundColor: '#00B388' }]}>
-                <Text style={styles.headerAvatarText}>{user?.email?.substring(0,2).toUpperCase() || 'TR'}</Text>
+                <Text style={styles.headerAvatarText}>{user?.email?.substring(0,2).toUpperCase() || 'DU'}</Text>
               </View>
             ) : (
               <View style={[styles.headerAvatar, { backgroundColor: '#F06A6A' }]}>
-                <Text style={styles.headerAvatarText}>OR</Text>
+                <Text style={styles.headerAvatarText}>{(selectedTeam?.name || 'OR').substring(0,2).toUpperCase()}</Text>
               </View>
             )}
             <View>
-              <Text style={styles.mainHeaderTitle}>{selectedItem === 'you' ? 'Du' : 'Team Signaturen'}</Text>
+              <Text style={styles.mainHeaderTitle}>{selectedItem === 'you' ? 'Du' : (selectedTeam?.name || 'Organisation')}</Text>
               <Text style={styles.mainHeaderSubtitle}>Signaturen</Text>
             </View>
           </View>
         </View>
         
         <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+          {selectedItem === 'org' && (
+            <View style={styles.orgTabBar}>
+              <TouchableOpacity
+                style={[styles.orgTab, orgTab === 'signatures' && styles.orgTabActive]}
+                onPress={() => setOrgTab('signatures')}
+              >
+                <Text style={[styles.orgTabText, orgTab === 'signatures' && styles.orgTabTextActive]}>Signaturen</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.orgTab, orgTab === 'assignments' && styles.orgTabActive]}
+                onPress={() => setOrgTab('assignments')}
+              >
+                <Text style={[styles.orgTabText, orgTab === 'assignments' && styles.orgTabTextActive]}>Nutzer zuweisen</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {(selectedItem === 'you' || orgTab === 'signatures') && (
+            <>
           <View style={styles.sectionHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={styles.sectionTitle}>Wiederverwendbare Signaturen</Text>
@@ -347,6 +464,8 @@ export default function SignaturesSettingsScreen() {
 
             {(selectedItem === 'you' ? personalSignatures : orgSignatures).map(sig => {
               const sigInboxes = inboxes.filter(i => i.signature_id === sig.id);
+              const sigAliases = aliases.filter(a => a.signature_id === sig.id);
+              const totalAssigned = sigInboxes.length + sigAliases.length;
               return (
                 <React.Fragment key={sig.id}>
                   <View style={styles.tableRowActions}>
@@ -360,15 +479,23 @@ export default function SignaturesSettingsScreen() {
                       </TouchableOpacity>
                     </View>
                   </View>
-                  {sigInboxes.length > 0 && (
+                  {totalAssigned > 0 && (
                     <View style={styles.expandedContent}>
-                      <Text style={styles.expandedLabel}>Aliasse, die diese Signatur verwenden:</Text>
+                      <Text style={styles.expandedLabel}>E-Mail-Adressen mit dieser Signatur:</Text>
                       {sigInboxes.map(inbox => (
                         <View key={inbox.id} style={styles.aliasPillRow}>
                           <View style={styles.emailAvatarSmall}>
                             <Text style={styles.emailAvatarTextSmall}>{inbox.name.substring(0, 2).toUpperCase()}</Text>
                           </View>
                           <Text style={styles.aliasPillTextSecondary}>{inbox.name} &lt;{inbox.email_address}&gt;</Text>
+                        </View>
+                      ))}
+                      {sigAliases.map(alias => (
+                        <View key={alias.id} style={styles.aliasPillRow}>
+                          <View style={styles.emailAvatarSmall}>
+                            <Text style={styles.emailAvatarTextSmall}>{(alias.name || alias.email_address).substring(0, 2).toUpperCase()}</Text>
+                          </View>
+                          <Text style={styles.aliasPillTextSecondary}>{alias.name || alias.email_address} &lt;{alias.email_address}&gt;</Text>
                         </View>
                       ))}
                     </View>
@@ -384,6 +511,12 @@ export default function SignaturesSettingsScreen() {
             )}
 
           </View>
+            </>
+          )}
+
+          {selectedItem === 'org' && orgTab === 'assignments' && selectedTeamId && (
+            <UserEmailAssignments teamId={selectedTeamId} />
+          )}
         </ScrollView>
       </View>
     </View>
@@ -827,6 +960,7 @@ const styles = StyleSheet.create({
   },
   textAreaContainer: {
     flex: 1,
+    minHeight: 200,
     backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -838,6 +972,8 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.text,
     lineHeight: 22,
+    minHeight: 180,
+    width: '100%',
   },
   infoBoxTop: {
     flexDirection: 'row',
@@ -906,5 +1042,30 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     fontWeight: 'bold',
+  },
+  orgTabBar: {
+    flexDirection: 'row',
+    marginBottom: Spacing.xl,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  orgTab: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    marginRight: Spacing.md,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  orgTabActive: {
+    borderBottomColor: Colors.info,
+  },
+  orgTabText: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  orgTabTextActive: {
+    color: Colors.info,
+    fontWeight: FontWeight.bold,
   },
 });

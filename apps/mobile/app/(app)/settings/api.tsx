@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
+import { useInboxes } from '../../../hooks/useInboxes';
 
 export default function APISettingsScreen() {
+  const { inboxes } = useInboxes();
+  const teamName = React.useMemo(() => {
+    const teams = new Map<string, string>();
+    inboxes.forEach(i => { if (i.team?.name && !teams.has(i.team.id)) teams.set(i.team.id, i.team.name); });
+    return teams.values().next().value || 'Organisation';
+  }, [inboxes]);
+
   const [activeTab, setActiveTab] = useState<'Tokens' | 'Resource IDs'>('Tokens');
   const [isModalVisible, setIsModalVisible] = useState(false);
 
@@ -51,7 +59,7 @@ export default function APISettingsScreen() {
           <Text style={[styles.tableCellText, { flex: 2, fontFamily: 'Courier' }]}>user_123456789</Text>
         </View>
         <View style={styles.tableRow}>
-          <Text style={[styles.tableCellText, { flex: 1, fontWeight: FontWeight.bold }]}>Organisation (CF Celle GmbH)</Text>
+          <Text style={[styles.tableCellText, { flex: 1, fontWeight: FontWeight.bold }]}>Organisation ({teamName})</Text>
           <Text style={[styles.tableCellText, { flex: 2, fontFamily: 'Courier' }]}>org_987654321</Text>
         </View>
         <View style={styles.tableRow}>

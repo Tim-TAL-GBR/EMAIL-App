@@ -72,7 +72,9 @@ export default function AccountsSettingsScreen() {
   const [isAddingAlias, setIsAddingAlias] = useState(false);
   const [newAliasEmail, setNewAliasEmail] = useState('');
   const [newAliasName, setNewAliasName] = useState('');
+  const [newAliasUserId, setNewAliasUserId] = useState<string | null>(null);
   const [isSubmittingAlias, setIsSubmittingAlias] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
 
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
   const [archiveDate, setArchiveDate] = useState('');
@@ -171,7 +173,7 @@ export default function AccountsSettingsScreen() {
     try {
       const { data, error } = await supabase
         .from('inbox_aliases')
-        .select('*')
+        .select('*, profiles:user_id(id, email, display_name)')
         .eq('inbox_id', account.id)
         .order('created_at', { ascending: true });
       if (error) throw error;
@@ -286,13 +288,15 @@ export default function AccountsSettingsScreen() {
       const { error } = await supabase.from('inbox_aliases').insert([{
         inbox_id: account.id,
         email_address: newAliasEmail.trim().toLowerCase(),
-        name: newAliasName.trim() || account.name || ''
+        name: newAliasName.trim() || account.name || '',
+        user_id: newAliasUserId || null,
       }]);
       if (error) throw error;
       
       Alert.alert('Erfolg', 'Alias wurde erfolgreich hinzugefügt!');
       setNewAliasEmail('');
       setNewAliasName('');
+      setNewAliasUserId(null);
       setIsAddingAlias(false);
       fetchAliases();
     } catch (e: any) {
@@ -664,6 +668,33 @@ export default function AccountsSettingsScreen() {
             value={newAliasEmail}
             onChangeText={setNewAliasEmail}
           />
+
+          {teamMembers.length > 0 && (
+            <>
+              <Text style={styles.settingLabel}>Zugewiesener Nutzer (optional)</Text>
+              <View style={{ marginBottom: Spacing.xl }}>
+                <TouchableOpacity
+                  style={[styles.input, { padding: Spacing.sm, marginBottom: Spacing.xs }]}
+                  onPress={() => setNewAliasUserId(null)}
+                >
+                  <Text style={{ color: !newAliasUserId ? Colors.info : Colors.text, fontFamily: FontFamily, fontSize: FontSize.sm }}>
+                    Kein Nutzer zugewiesen
+                  </Text>
+                </TouchableOpacity>
+                {teamMembers.map((m: any) => (
+                  <TouchableOpacity
+                    key={m.user_id || m.id}
+                    style={[styles.input, { padding: Spacing.sm, marginBottom: Spacing.xs, borderColor: newAliasUserId === (m.user_id || m.id) ? Colors.info : Colors.border }]}
+                    onPress={() => setNewAliasUserId(m.user_id || m.id)}
+                  >
+                    <Text style={{ color: newAliasUserId === (m.user_id || m.id) ? Colors.info : Colors.text, fontFamily: FontFamily, fontSize: FontSize.sm }}>
+                      {m.display_name || m.email || m.user_id}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
 
           <TouchableOpacity 
             style={[styles.buttonPrimary, { alignSelf: 'flex-start' }, isSubmittingAlias && { opacity: 0.7 }]}
@@ -1195,7 +1226,20 @@ export default function AccountsSettingsScreen() {
           <Text style={styles.sectionTitle}>Aliase</Text>
           <Text style={styles.settingSubLabel}>Name, Signatur, Auto Cc / Bcc</Text>
         </View>
-        <TouchableOpacity onPress={() => setIsAddingAlias(true)}>
+        <TouchableOpacity onPress={async () => {
+          if (account?.team?.id) {
+            const { data: { session } } = await supabase.auth.getSession();
+            const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
+            const res = await fetch(`${API_URL}/api/teams/${account.team.id}/members`, {
+              headers: { 'Authorization': `Bearer ${session?.access_token}` },
+            });
+            if (res.ok) {
+              const members = await res.json();
+              setTeamMembers(members || []);
+            }
+          }
+          setIsAddingAlias(true);
+        }}>
           <Text style={styles.linkText}>⊕ Alias hinzufügen</Text>
         </TouchableOpacity>
       </View>
@@ -1203,7 +1247,7 @@ export default function AccountsSettingsScreen() {
         <View style={styles.tableHeader}>
           <Text style={[styles.tableHeaderText, { flex: 2 }]}>Adresse</Text>
           <Text style={[styles.tableHeaderText, { flex: 2 }]}>Name</Text>
-          <Text style={[styles.tableHeaderText, { flex: 1 }]}>Geteilt mit</Text>
+          <Text style={[styles.tableHeaderText, { flex: 1 }]}>Zugewiesen</Text>
           <Text style={[styles.tableHeaderText, { width: 80 }]}></Text>
         </View>
         <View style={styles.tableRow}>
@@ -1228,9 +1272,40 @@ export default function AccountsSettingsScreen() {
             <View key={alias.id} style={styles.tableRow}>
               <Text style={[styles.tableCellText, { flex: 2 }]}>{alias.email_address}</Text>
               <Text style={[styles.tableCellText, { flex: 2 }]}>{alias.name}</Text>
-              <Text style={[styles.tableCellText, { flex: 1 }]}></Text>
+              <Text style={[styles.tableCellText, { flex: 1 }]}>{alias.profiles?.display_name || alias.profiles?.email || '-'}</Text>
               <View style={{ width: 80, flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm }}>
-                <TouchableOpacity onPress={() => Alert.alert('Demnächst', 'Bearbeiten von Aliasen kommt bald')}>
+                <TouchableOpacity onPress={async () => {
+                  if (!alias.user_id) {
+                    setNewAliasUserId(null);
+                  } else {
+                    setNewAliasUserId(alias.user_id);
+                  }
+                  setNewAliasEmail(alias.email_address);
+                  setNewAliasName(alias.name || '');
+                  if (account?.team?.id) {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
+                    const res = await fetch(`${API_URL}/api/teams/${account.team.id}/members`, {
+                      headers: { 'Authorization': `Bearer ${session?.access_token}` },
+                    });
+                    if (res.ok) {
+                      const members = await res.json();
+                      setTeamMembers(members || []);
+                    }
+                  }
+                  Alert.alert(
+                    'Alias bearbeiten',
+                    `E-Mail: ${alias.email_address}\nAktueller Nutzer: ${alias.profiles?.display_name || alias.profiles?.email || 'Keiner'}`,
+                    [
+                      { text: 'Zuweisung entfernen', onPress: async () => {
+                        const { error } = await supabase.from('inbox_aliases').update({ user_id: null }).eq('id', alias.id);
+                        if (error) { Alert.alert('Fehler', error.message); return; }
+                        fetchAliases();
+                      }},
+                      { text: 'Abbrechen', style: 'cancel' },
+                    ]
+                  );
+                }}>
                   <Text style={styles.linkText}>Bearbeiten</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={async () => {

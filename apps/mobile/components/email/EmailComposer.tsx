@@ -39,9 +39,26 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
   const { inboxes } = useInboxes();
   const { signatures } = useSignatures();
+  const [userSigSettings, setUserSigSettings] = useState<any>(null);
   
   // Use provided inboxId, or fallback to first available inbox if opened from Global Inbox
   const activeInboxId = inboxId || (inboxes && inboxes.length > 0 ? inboxes[0].id : '');
+
+  // Fetch per-user email settings for the active inbox
+  useEffect(() => {
+    if (!activeInboxId || !visible) return;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('user_email_settings')
+        .select('display_name, signature_id, reply_to, signature:signatures(id, name, content_text)')
+        .eq('inbox_id', activeInboxId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      setUserSigSettings(data);
+    })();
+  }, [activeInboxId, visible]);
 
   const extractEmail = (str?: string) => {
     if (!str) return '';
@@ -160,22 +177,37 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         setAttachments([]);
       }
 
-      // Add signature if not present
+      // Add signature if not present — prefer per-user settings, fall back to inbox
       if (!draftToResume && !draft && activeInboxId) {
-        const activeInbox = inboxes.find(i => i.id === activeInboxId);
-        if (activeInbox?.signature_id) {
-          const sig = signatures.find(s => s.id === activeInbox.signature_id);
-          if (sig && sig.content_text) {
-            const sigText = `\n\n-- \n${sig.content_text}`;
-            setBody(prev => {
-              if (!prev.includes(sigText)) return prev + sigText;
-              return prev;
-            });
+        let sigText: string | null = null;
+
+        // 1. Try per-user email settings (admin-assigned signature for this user+inbox)
+        if (userSigSettings?.signature?.content_text) {
+          sigText = userSigSettings.signature.content_text;
+        } else if (userSigSettings?.signature_id) {
+          const userSig = signatures.find(s => s.id === userSigSettings.signature_id);
+          if (userSig?.content_text) sigText = userSig.content_text;
+        }
+
+        // 2. Fallback to inbox-level signature
+        if (!sigText) {
+          const activeInbox = inboxes.find(i => i.id === activeInboxId);
+          if (activeInbox?.signature_id) {
+            const sig = signatures.find(s => s.id === activeInbox.signature_id);
+            if (sig?.content_text) sigText = sig.content_text;
           }
+        }
+
+        if (sigText) {
+          const formatted = `\n\n-- \n${sigText}`;
+          setBody(prev => {
+            if (!prev.includes(formatted)) return prev + formatted;
+            return prev;
+          });
         }
       }
     }
-  }, [visible, mode, sourceEmail, inboxId, inboxes, signatures, draftToResume, draft]);
+  }, [visible, mode, sourceEmail, inboxId, inboxes, signatures, draftToResume, draft, userSigSettings]);
 
   // Auto-save logic
   useEffect(() => {
