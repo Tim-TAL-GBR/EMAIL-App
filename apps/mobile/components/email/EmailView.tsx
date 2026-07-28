@@ -277,13 +277,6 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
                   <Feather name="trash-2" size={16} color={Colors.textSecondary} />
                 </TouchableOpacity>
                 
-                <TouchableOpacity
-                  style={[styles.iconButton, showShopifyPanel && { backgroundColor: '#E8F5E9', borderRadius: 4 }]}
-                  onPress={() => setShowShopifyPanel(!showShopifyPanel)}
-                >
-                  <Feather name="shopping-bag" size={16} color={showShopifyPanel ? '#96BF48' : Colors.textSecondary} />
-                </TouchableOpacity>
-                
                 <View ref={moreRef} collapsable={false}>
                   <TouchableOpacity style={styles.iconButton} onPress={openMoreMenu}>
                     <Feather name="more-horizontal" size={16} color={Colors.textSecondary} />
@@ -293,7 +286,16 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             </View>
 
             <View style={styles.subjectContainer}>
-              <Text style={styles.subjectText}>{selectedThread.subject}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                <Text style={styles.subjectText} numberOfLines={1}>{selectedThread.subject}</Text>
+                <TouchableOpacity
+                  style={[styles.shopifyChip, showShopifyPanel && styles.shopifyChipActive]}
+                  onPress={() => setShowShopifyPanel(!showShopifyPanel)}
+                >
+                  <Feather name="shopping-bag" size={13} color={showShopifyPanel ? '#FFF' : '#96BF48'} />
+                  <Text style={[styles.shopifyChipText, showShopifyPanel && styles.shopifyChipTextActive]}>Shopify</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         }
@@ -465,6 +467,31 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     color: Colors.text,
+    flex: 1,
+  },
+  shopifyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#96BF48',
+    backgroundColor: '#F0F8E8',
+  },
+  shopifyChipActive: {
+    backgroundColor: '#96BF48',
+    borderColor: '#96BF48',
+  },
+  shopifyChipText: {
+    fontSize: 11,
+    fontFamily: FontFamily,
+    fontWeight: FontWeight.semibold,
+    color: '#96BF48',
+  },
+  shopifyChipTextActive: {
+    color: '#FFF',
   },
   iconButton: {
     padding: Spacing.xs,
