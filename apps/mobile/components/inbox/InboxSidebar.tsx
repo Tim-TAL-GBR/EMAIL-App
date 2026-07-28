@@ -7,6 +7,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useNavigationStore, ContextType, FilterType } from '../../stores/navigationStore';
 import { useLabelStore } from '../../stores/useLabelStore';
 import { useEmailStore } from '../../stores/emailStore';
+import { useTeams } from '../../hooks/useTeams';
 import { Avatar } from '../ui/Avatar';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { CreateLabelModal } from './CreateLabelModal';
@@ -18,13 +19,6 @@ interface InboxSidebarProps {
   isDesktop?: boolean;
 }
 
-interface TeamData {
-  id: string;
-  name: string;
-  myRole: string;
-  parent_id: string | null;
-}
-
 export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -34,6 +28,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   
   const { labels, fetchLabels, createLabel } = useLabelStore();
   const { pinnedThreads, fetchPinnedThreads } = useEmailStore();
+  const { teams: allTeams, orgs, getSubTeams } = useTeams();
   const [isCreateLabelModalOpen, setIsCreateLabelModalOpen] = useState(false);
   
   const [openEmailCount, setOpenEmailCount] = useState(0);
@@ -46,31 +41,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   // Track which team filter dropdown is open
   const [openTeamFilter, setOpenTeamFilter] = useState<string | null>(null);
 
-  // Teams from API (org + sub-teams)
-  const [allTeams, setAllTeams] = useState<TeamData[]>([]);
-
   const privateInboxes = inboxes.filter(i => i.type === 'private');
-
-  // Fetch teams from API
-  useEffect(() => {
-    const fetchTeams = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${API_URL}/api/teams`, {
-          headers: { 'Authorization': `Bearer ${session?.access_token}` },
-        });
-        const data = await res.json();
-        setAllTeams(data || []);
-      } catch (e) {
-        console.error('Failed to fetch teams:', e);
-      }
-    };
-    fetchTeams();
-  }, []);
-
-  // Orgs and their sub-teams
-  const orgs = allTeams.filter(t => !t.parent_id);
-  const getSubTeams = (orgId: string) => allTeams.filter(t => t.parent_id === orgId);
 
   // Group shared inboxes by team (for labels)
   const teamsMap = new Map<string, { id: string; name: string }>();

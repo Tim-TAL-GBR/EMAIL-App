@@ -5,6 +5,7 @@ import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { Colors, Spacing, FontSize, FontWeight } from '../../lib/constants';
 import { useEmails } from '../../hooks/useEmails';
 import { useDraftsList } from '../../hooks/useDraftsList';
+import { useTeams } from '../../hooks/useTeams';
 import { useAuthStore } from '../../stores/authStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { EmailListItem } from '../email/EmailListItem';
@@ -34,6 +35,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   const { activeContextType, activeContextId, activeFilter, selectedEmailId, setEmailId } = useNavigationStore();
   
   const { inboxes } = useInboxes();
+  const { teams } = useTeams();
   
   const inboxIds = React.useMemo(() => {
     if (activeContextType === 'team') {
@@ -41,9 +43,14 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
         .filter(i => i.type === 'shared' && i.team?.id === activeContextId)
         .map(i => i.id);
     } else if (activeContextType === 'org') {
-      // All shared inboxes belonging to any team within this org
+      // Only shared inboxes belonging to teams whose parent_id is this org, or the org itself
+      const teamIds = new Set<string>();
+      if (activeContextId) {
+        teamIds.add(activeContextId);
+        teams.filter(t => t.parent_id === activeContextId).forEach(t => teamIds.add(t.id));
+      }
       return inboxes
-        .filter(i => i.type === 'shared' && i.team)
+        .filter(i => i.type === 'shared' && i.team && teamIds.has(i.team.id))
         .map(i => i.id);
     } else if (activeContextType === 'private_inbox') {
       return activeContextId ? [activeContextId] : [];
@@ -51,7 +58,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
       return inboxes.map(i => i.id);
     }
     return [];
-  }, [inboxes, activeContextType, activeContextId]);
+  }, [inboxes, activeContextType, activeContextId, teams]);
 
   const labelId = activeContextType === 'label' ? activeContextId : undefined;
   const { threads, isLoading, isLoadingMore, hasMoreEmails, fetchMoreEmails, refetch } = useEmails(inboxIds, labelId, activeContextType, activeFilter);
