@@ -294,7 +294,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
             <View style={[styles.miniAvatar, { backgroundColor: '#FFB800', marginLeft: -8, zIndex: 1 }]}><Text style={styles.miniAvatarText}>E</Text></View>
           </View>
           <Avatar 
-            name={user?.user_metadata?.display_name || user?.email || 'User'} 
+            name={user?.user_metadata?.display_name || 'User'} 
             size={24} 
           />
           <View style={styles.userDetails}>

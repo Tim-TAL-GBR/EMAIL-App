@@ -178,7 +178,7 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
                     onPress={() => setAssignedTo(m.id)}
                   >
                     <Text style={[styles.pillText, assignedTo === m.id && styles.pillTextActive]}>
-                      {m.display_name || m.email}
+                      {m.display_name || 'Unbekannt'}
                     </Text>
                   </TouchableOpacity>
                 ))}

@@ -244,7 +244,7 @@ export default function SignaturesSettingsScreen() {
               <View style={styles.modalHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <View style={[styles.headerAvatar, { backgroundColor: selectedItem === 'you' ? '#00B388' : '#F06A6A', width: 40, height: 40, borderRadius: 20 }]}>
-                    <Text style={[styles.headerAvatarText, { fontSize: 16 }]}>{selectedItem === 'you' ? (user?.email?.substring(0,2).toUpperCase() || 'DU') : (selectedTeam?.name?.substring(0,2).toUpperCase() || 'OR')}</Text>
+                    <Text style={[styles.headerAvatarText, { fontSize: 16 }]}>{selectedItem === 'you' ? ((user?.user_metadata?.display_name || user?.email || 'DU').substring(0,2).toUpperCase()) : (selectedTeam?.name?.substring(0,2).toUpperCase() || 'OR')}</Text>
                   </View>
                   <View>
                     <Text style={styles.modalTitle}>{selectedItem === 'you' ? 'Du' : (selectedTeam?.name || 'Organisation')}</Text>
@@ -368,7 +368,7 @@ export default function SignaturesSettingsScreen() {
             onPress={() => setSelectedItem('you')}
           >
             <View style={[styles.userAvatar, { backgroundColor: '#00B388' }]}>
-              <Text style={styles.userAvatarText}>{user?.email?.substring(0,2).toUpperCase() || 'TR'}</Text>
+              <Text style={styles.userAvatarText}>{(user?.user_metadata?.display_name || user?.email || 'UN').substring(0,2).toUpperCase()}</Text>
             </View>
             <View>
               <Text style={[styles.sidebarItemTitle, selectedItem === 'you' && styles.sidebarItemTitleActive]}>Du</Text>
@@ -413,7 +413,7 @@ export default function SignaturesSettingsScreen() {
           <View style={styles.headerTitleRow}>
             {selectedItem === 'you' ? (
               <View style={[styles.headerAvatar, { backgroundColor: '#00B388' }]}>
-                <Text style={styles.headerAvatarText}>{user?.email?.substring(0,2).toUpperCase() || 'DU'}</Text>
+                <Text style={styles.headerAvatarText}>{(user?.user_metadata?.display_name || user?.email || 'DU').substring(0,2).toUpperCase()}</Text>
               </View>
             ) : (
               <View style={[styles.headerAvatar, { backgroundColor: '#F06A6A' }]}>

@@ -253,11 +253,11 @@ export default function TeamsSettingsScreen() {
                     <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
                       <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
                         <Text style={styles.userAvatarText}>
-                          {(member.display_name || member.email).substring(0, 2).toUpperCase()}
+                          {(member.display_name || 'UN').substring(0, 2).toUpperCase()}
                         </Text>
                       </View>
                       <View>
-                        <Text style={styles.cellBold}>{member.display_name || member.email}</Text>
+                        <Text style={styles.cellBold}>{member.display_name || 'Unbekannt'}</Text>
                         {member.display_name && <Text style={styles.cellSub}>{member.email}</Text>}
                       </View>
                     </View>

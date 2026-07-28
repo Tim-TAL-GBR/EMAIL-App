@@ -688,7 +688,7 @@ export default function AccountsSettingsScreen() {
                     onPress={() => setNewAliasUserId(m.user_id || m.id)}
                   >
                     <Text style={{ color: newAliasUserId === (m.user_id || m.id) ? Colors.info : Colors.text, fontFamily: FontFamily, fontSize: FontSize.sm }}>
-                      {m.display_name || m.email || m.user_id}
+                      {m.display_name || 'Unbekannt'}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -1272,7 +1272,7 @@ export default function AccountsSettingsScreen() {
             <View key={alias.id} style={styles.tableRow}>
               <Text style={[styles.tableCellText, { flex: 2 }]}>{alias.email_address}</Text>
               <Text style={[styles.tableCellText, { flex: 2 }]}>{alias.name}</Text>
-              <Text style={[styles.tableCellText, { flex: 1 }]}>{alias.profiles?.display_name || alias.profiles?.email || '-'}</Text>
+              <Text style={[styles.tableCellText, { flex: 1 }]}>{alias.profiles?.display_name || '-'}</Text>
               <View style={{ width: 80, flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm }}>
                 <TouchableOpacity onPress={async () => {
                   if (!alias.user_id) {
@@ -1295,7 +1295,7 @@ export default function AccountsSettingsScreen() {
                   }
                   Alert.alert(
                     'Alias bearbeiten',
-                    `E-Mail: ${alias.email_address}\nAktueller Nutzer: ${alias.profiles?.display_name || alias.profiles?.email || 'Keiner'}`,
+                    `E-Mail: ${alias.email_address}\nAktueller Nutzer: ${alias.profiles?.display_name || 'Keiner'}`,
                     [
                       { text: 'Zuweisung entfernen', onPress: async () => {
                         const { error } = await supabase.from('inbox_aliases').update({ user_id: null }).eq('id', alias.id);
@@ -1641,7 +1641,7 @@ export default function AccountsSettingsScreen() {
                   </View>
                   {account?.inbox_members?.map((mem: any) => {
                     const prof = mem.profiles;
-                    const displayName = prof?.display_name || prof?.email;
+                    const displayName = prof?.display_name || 'Unbekannt';
                     return (
                       <View key={mem.user_id} style={styles.tableRow}>
                         <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>

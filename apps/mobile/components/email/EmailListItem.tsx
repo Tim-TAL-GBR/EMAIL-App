@@ -112,7 +112,7 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
             {/* Real assignee badges based on assignments array */}
             {assignments.map((a: any, idx: number) => {
               // Extract initials from assigned_to_profile name or fallback
-              const assignedName = a.assigned_to_profile?.display_name || a.assigned_to_profile?.email || 'U';
+              const assignedName = a.assigned_to_profile?.display_name || 'U';
               const initials = assignedName.substring(0, 2).toUpperCase();
               
               // Simple color mapping based on first letter

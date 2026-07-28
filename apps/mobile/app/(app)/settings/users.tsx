@@ -59,7 +59,7 @@ function getInitials(name: string | null, email: string) {
     const parts = name.split(' ');
     return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
   }
-  return email.substring(0, 2).toUpperCase();
+  return 'UN';
 }
 
 export default function UsersSettingsScreen() {
@@ -157,7 +157,7 @@ export default function UsersSettingsScreen() {
   const handleRemoveMember = (member: Member) => {
     Alert.alert(
       'Mitglied entfernen',
-      `Soll ${member.display_name || member.email} wirklich aus dem Team entfernt werden?`,
+      `Soll ${member.display_name || 'Unbekannt'} wirklich aus dem Team entfernt werden?`,
       [
         { text: 'Abbrechen', style: 'cancel' },
         {
@@ -331,7 +331,7 @@ export default function UsersSettingsScreen() {
                     </View>
                     <View>
                       <Text style={styles.tableCellTextBold}>
-                        {member.display_name || member.email}
+                        {member.display_name || 'Unbekannt'}
                         {member.isMe && <Text style={styles.meBadge}> (Du)</Text>}
                       </Text>
                       <Text style={styles.tableCellSubtitle}>{member.email}</Text>

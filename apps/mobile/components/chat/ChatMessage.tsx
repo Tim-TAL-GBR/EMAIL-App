@@ -17,7 +17,7 @@ interface ChatMessageProps {
 }
 
 export function ChatMessage({ comment }: ChatMessageProps) {
-  const authorName = comment.author?.display_name || comment.author?.email || 'Unknown User';
+  const authorName = comment.author?.display_name || 'Unbekannt';
   const formattedDate = comment.created_at
     ? format(parseISO(comment.created_at), 'MMM d, HH:mm')
     : '';

@@ -47,7 +47,7 @@ export function MentionPicker({ query, onSelect, visible }: MentionPickerProps) 
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => {
-          const name = item.display_name || item.email;
+          const name = item.display_name || 'Unbekannt';
           return (
             <TouchableOpacity 
               style={styles.row} 

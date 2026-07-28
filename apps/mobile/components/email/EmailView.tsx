@@ -121,7 +121,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const currentAssignee = assignments.length > 0
     ? {
         id: assignments[0].assigned_to,
-        name: assignments[0].assigned_to_profile?.display_name || assignments[0].assigned_to_profile?.email || 'User',
+        name: assignments[0].assigned_to_profile?.display_name || 'Unbekannt',
       }
     : null;
 

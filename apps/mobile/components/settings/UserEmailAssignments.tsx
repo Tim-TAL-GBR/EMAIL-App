@@ -173,7 +173,7 @@ export function UserEmailAssignments({ teamId }: Props) {
               return (
                 <View key={member.id} style={styles.tableRow}>
                   <Text style={[styles.tableCellText, { flex: 2 }]} numberOfLines={1}>
-                    {member.display_name || member.email.split('@')[0]}
+                    {member.display_name || 'Unbekannt'}
                   </Text>
 
                   <TextInput
@@ -244,7 +244,7 @@ export function UserEmailAssignments({ teamId }: Props) {
                                 onPress={() => handleAssignAlias(alias.id, isActive ? null : member.id)}
                               >
                                 <Text style={[styles.sigChipText, isActive && styles.sigChipTextActive]} numberOfLines={1}>
-                                  {member.display_name || member.email.split('@')[0]}
+                                  {member.display_name || 'Unbekannt'}
                                 </Text>
                               </TouchableOpacity>
                             );

@@ -131,9 +131,9 @@ export function EmailAssignment({ emailId, inboxId, currentAssignee, onAssign, o
                   style={styles.memberRow}
                   onPress={() => handleSelect(item.user_id)}
                 >
-                  <Avatar name={item.profile.display_name || item.profile.email} size={36} />
+                  <Avatar name={item.profile.display_name || 'Unbekannt'} size={36} />
                   <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{item.profile.display_name || item.profile.email}</Text>
+                    <Text style={styles.memberName}>{item.profile.display_name || 'Unbekannt'}</Text>
                     <Text style={styles.memberRole}>{item.role}</Text>
                   </View>
                   {item.user_id === currentAssignee?.id && (

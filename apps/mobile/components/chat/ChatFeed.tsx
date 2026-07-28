@@ -61,7 +61,7 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
     const match = newComment.match(/(?:^|\s)@([^\s]*)$/);
     if (match) {
       const start = newComment.lastIndexOf('@' + match[1]);
-      const newText = newComment.substring(0, start) + `@${user.display_name || user.email} ` + newComment.substring(start + match[0].length);
+      const newText = newComment.substring(0, start) + `@${user.display_name || 'Unbekannt'} ` + newComment.substring(start + match[0].length);
       setNewComment(newText);
       setMentionedUsers([...mentionedUsers, user.id]);
     }

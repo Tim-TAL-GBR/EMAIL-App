@@ -263,7 +263,7 @@ export default function RulesSettingsScreen() {
             onPress={() => setSelectedItem('you')}
           >
             <View style={[styles.userAvatar, { backgroundColor: '#00B388', width: 28, height: 28, borderRadius: 14 }]}>
-              <Text style={[styles.userAvatarText, { fontSize: 12 }]}>{user?.email?.substring(0,2).toUpperCase() || 'TR'}</Text>
+              <Text style={[styles.userAvatarText, { fontSize: 12 }]}>{(user?.user_metadata?.display_name || user?.email || 'UN').substring(0,2).toUpperCase()}</Text>
             </View>
             <View>
               <Text style={[styles.sidebarItemTitle, selectedItem === 'you' && styles.sidebarItemTitleActive]}>Du</Text>
@@ -325,7 +325,7 @@ export default function RulesSettingsScreen() {
           <View style={styles.headerTitleRow}>
             {selectedItem === 'you' ? (
               <View style={[styles.headerAvatar, { backgroundColor: '#00B388' }]}>
-                <Text style={styles.headerAvatarText}>{user?.email?.substring(0,2).toUpperCase() || 'TR'}</Text>
+                <Text style={styles.headerAvatarText}>{(user?.user_metadata?.display_name || user?.email || 'UN').substring(0,2).toUpperCase()}</Text>
               </View>
             ) : (
               <View style={[styles.headerAvatar, { backgroundColor: '#F06A6A' }]}>
