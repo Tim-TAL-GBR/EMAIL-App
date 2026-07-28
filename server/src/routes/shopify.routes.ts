@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { getShopifyForTeam, invalidateShopifyForTeam } from "../services/shopify.service.js";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
+import { verifySupabaseToken } from "../middleware/auth.middleware.js";
 import { connection as redisConnection } from "../services/queue.service.js";
 import { encrypt, decrypt } from "../utils/encryption.js";
 
@@ -96,9 +97,25 @@ shopifyRouter.get("/status", requireAuth, async (req, res) => {
 // OAuth: Begin
 // ---------------------------------------------------------------------------
 
-shopifyRouter.get("/auth", requireAuth, async (req, res) => {
+shopifyRouter.get("/auth", async (req, res) => {
   const shop = req.query.shop as string;
   const teamId = req.query.team_id as string;
+  const token = req.query.token as string;
+
+  if (!token) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const payload = await verifySupabaseToken(authHeader.slice(7));
+      if (payload?.sub) req.user = payload;
+    }
+  } else {
+    const payload = await verifySupabaseToken(token);
+    if (payload?.sub) req.user = payload;
+  }
+
+  if (!req.user?.sub) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   if (!shop || !teamId) {
     return res.status(400).json({ error: "Missing shop or team_id" });
