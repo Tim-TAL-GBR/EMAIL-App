@@ -1,16 +1,27 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors, FontFamily, FontSize, Spacing } from '../../../lib/constants';
+import { Colors, FontFamily, FontSize, Spacing, FontWeight } from '../../../lib/constants';
+import { useTasks } from '../../../hooks/useTasks';
+import { useTaskNavigation } from '../../../stores/taskNavigationStore';
+import { TaskCalendar } from '../../../components/tasks/TaskCalendar';
+import { useRouter } from 'expo-router';
 
 export default function CalendarsScreen() {
+  const { tasks } = useTasks();
+  const { setSelectedTaskId } = useTaskNavigation();
+  const router = useRouter();
+
+  const handleTaskPress = (task: any) => {
+    setSelectedTaskId(task.id);
+    router.push('/tasks');
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Calendars</Text>
+        <Text style={styles.title}>Kalender</Text>
       </View>
-      <View style={styles.content}>
-        <Text style={styles.emptyText}>Kalender-Synchronisation befindet sich im Aufbau.</Text>
-      </View>
+      <TaskCalendar tasks={tasks} onTaskPress={handleTaskPress} />
     </View>
   );
 }
@@ -21,24 +32,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   header: {
-    padding: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: Colors.borderLight,
   },
   title: {
     fontFamily: FontFamily,
     fontSize: FontSize.xl,
     fontWeight: 'bold',
     color: Colors.text,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontFamily: FontFamily,
-    fontSize: FontSize.md,
-    color: Colors.textTertiary,
   },
 });

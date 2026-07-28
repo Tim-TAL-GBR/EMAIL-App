@@ -142,7 +142,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
           >
             <View style={styles.mainNavLeft}>
               <Feather name="calendar" size={16} color={pathname.includes('/calendars') ? Colors.primary : Colors.textTertiary} style={styles.mainNavIcon} />
-              <Text style={[styles.mainNavText, pathname.includes('/calendars') && styles.mainNavTextActive]}>Calendars</Text>
+              <Text style={[styles.mainNavText, pathname.includes('/calendars') && styles.mainNavTextActive]}>Kalender</Text>
             </View>
           </TouchableOpacity>
         </View>
