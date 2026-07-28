@@ -51,6 +51,22 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             if (data?.team_id) fetchLabels(data.team_id);
           });
         }
+
+        if (selectedThread.latestEmail.from_address && teamId) {
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+            const res = await fetch(`${baseUrl}/api/shopify/customer?email=${encodeURIComponent(selectedThread.latestEmail.from_address)}&team_id=${teamId}`, {
+              headers: { 'Authorization': `Bearer ${session?.access_token}` }
+            });
+            if (res.status === 404) {
+              setShopifyResult({ connected: false, hasCustomer: false });
+            } else if (res.ok) {
+              const json = await res.json();
+              setShopifyResult({ connected: true, hasCustomer: !!json.customer });
+            }
+          } catch {}
+        }
       }
     };
     run();
@@ -307,13 +323,12 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       />
       </View>
       
-      {Platform.OS === 'web' && selectedThread?.latestEmail && (
-        <View style={{ width: showShopifyPanel ? 320 : 0, overflow: 'hidden', borderLeftWidth: showShopifyPanel ? 1 : 0, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: showShopifyPanel ? Spacing.md : 0 }}>
+      {Platform.OS === 'web' && showShopifyPanel && selectedThread?.latestEmail && (
+        <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
           <ShopifyCustomerCard 
             email={selectedThread.latestEmail.from_address} 
             teamId={selectedThread.latestEmail.team_id}
             detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
-            onResult={(result) => setShopifyResult(result)}
           />
         </View>
       )}
