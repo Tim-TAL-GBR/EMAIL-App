@@ -703,11 +703,11 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
                     <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextActive]} numberOfLines={1}>
                       {formatted}
                     </Text>
-                    <Text style={{ fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 }}>
+                    <Text style={{ fontSize: FontSize.xs, color: isSelected ? '#FFFFFF' : Colors.textTertiary, marginTop: 2 }}>
                       {alias.inboxName}
                     </Text>
                   </View>
-                  {isSelected && <Feather name="check" size={16} color={Colors.primary} />}
+                  {isSelected && <Feather name="check" size={16} color="#FFFFFF" />}
                 </TouchableOpacity>
               );
             })}
@@ -1013,7 +1013,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
   },
   pickerOptionActive: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.primary,
   },
   pickerOptionText: {
     fontSize: FontSize.md,
@@ -1021,7 +1021,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pickerOptionTextActive: {
-    color: Colors.primary,
+    color: '#FFFFFF',
     fontWeight: FontWeight.medium,
   },
 });
