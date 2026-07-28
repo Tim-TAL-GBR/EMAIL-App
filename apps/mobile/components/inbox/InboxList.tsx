@@ -553,10 +553,10 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
+    backgroundColor: '#F3F4F6',
   },
   sectionHeader: {
-    backgroundColor: '#FFF',
+    backgroundColor: '#F3F4F6',
     paddingVertical: Spacing.xs,
     paddingHorizontal: Spacing.md,
     marginTop: Spacing.sm,

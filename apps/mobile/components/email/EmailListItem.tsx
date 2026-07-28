@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, BorderRadius } from '../../lib/constants';
 import { StatusBadge } from '../ui/StatusBadge';
@@ -159,6 +159,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
     backgroundColor: Colors.background,
+    marginHorizontal: Spacing.sm,
+    marginTop: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+    ...(Platform.OS === 'web' ? { boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } : { elevation: 1 }),
   },
   containerSelected: {
     backgroundColor: '#E6F0FF', // Light blue background matching screenshot
