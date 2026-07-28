@@ -19,6 +19,7 @@ import { shopifyRouter } from "./routes/shopify.routes.js";
 import { userEmailSettingsRouter } from "./routes/userEmailSettings.routes.js";
 import { taskRouter } from "./routes/task.routes.js";
 import { taskNotificationRouter } from "./routes/taskNotification.routes.js";
+import { userPreferencesRouter } from "./routes/userPreferences.routes.js";
 import { startEmailWorker } from "./services/queue.service.js";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,7 @@ app.use("/api/shopify", shopifyRouter);
 app.use("/api/user-email-settings", userEmailSettingsRouter);
 app.use("/api/tasks", taskRouter);
 app.use("/api/task-notifications", taskNotificationRouter);
+app.use("/api/user-preferences", userPreferencesRouter);
 
 // Global error handler — no stack traces in production
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
