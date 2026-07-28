@@ -18,6 +18,7 @@ import { teamRouter } from "./routes/team.routes.js";
 import { shopifyRouter } from "./routes/shopify.routes.js";
 import { userEmailSettingsRouter } from "./routes/userEmailSettings.routes.js";
 import { taskRouter } from "./routes/task.routes.js";
+import { taskNotificationRouter } from "./routes/taskNotification.routes.js";
 import { startEmailWorker } from "./services/queue.service.js";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,7 @@ app.use("/api/teams", teamRouter);
 app.use("/api/shopify", shopifyRouter);
 app.use("/api/user-email-settings", userEmailSettingsRouter);
 app.use("/api/tasks", taskRouter);
+app.use("/api/task-notifications", taskNotificationRouter);
 
 // Global error handler — no stack traces in production
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -101,6 +103,43 @@ server.listen(PORT, async () => {
 
   // Start IMAP Sync
   await mailManager.initialize();
+
+  // Task due date notifications — check every 15 minutes
+  setInterval(async () => {
+    try {
+      const res = await fetch(`http://localhost:${PORT}/api/task-notifications/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.checked > 0) {
+        console.log(`[TaskNotifications] Checked ${data.checked} tasks, sent ${data.sent} notifications`);
+      }
+    } catch (err) {
+      console.error('[TaskNotifications] Cron check failed:', err);
+    }
+  }, 15 * 60 * 1000);
+
+  // Daily reset of notification_sent flag at midnight
+  const msUntilMidnight = (() => {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    return midnight.getTime() - now.getTime();
+  })();
+  setTimeout(() => {
+    setInterval(async () => {
+      try {
+        await fetch(`http://localhost:${PORT}/api/task-notifications/reset-daily`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        console.log('[TaskNotifications] Daily notification reset completed');
+      } catch (err) {
+        console.error('[TaskNotifications] Daily reset failed:', err);
+      }
+    }, 24 * 60 * 60 * 1000);
+  }, msUntilMidnight);
 });
 
 // ---------------------------------------------------------------------------
