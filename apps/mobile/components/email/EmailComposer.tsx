@@ -69,17 +69,20 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     (async () => {
       const activeInbox = inboxes.find(i => i.id === activeInboxId);
       const inboxEmail = activeInbox?.email_address || '';
+      const inboxName = activeInbox?.name && activeInbox.name !== inboxEmail ? activeInbox.name : undefined;
       const { data } = await supabase
         .from('inbox_aliases')
         .select('email_address, name')
         .eq('inbox_id', activeInboxId);
       const aliases = data || [];
-      setSenderAliases([{ email_address: inboxEmail, name: 'Standard' }, ...aliases.filter(a => a.email_address !== inboxEmail)]);
-      if (!senderAddress || !aliases.some(a => a.email_address === senderAddress) && senderAddress !== inboxEmail) {
-        setSenderAddress(inboxEmail);
+      setSenderAliases([{ email_address: inboxEmail, name: inboxName || 'Standard' }, ...aliases.filter(a => a.email_address !== inboxEmail)]);
+      const currentEmail = extractEmail(senderAddress);
+      if (!senderAddress || !aliases.some(a => a.email_address === currentEmail) && currentEmail !== inboxEmail) {
+        const displayName = userSigSettings?.display_name || inboxName;
+        setSenderAddress(displayName ? `${displayName} <${inboxEmail}>` : inboxEmail);
       }
     })();
-  }, [activeInboxId, visible]);
+  }, [activeInboxId, visible, userSigSettings]);
 
   const extractEmail = (str?: string) => {
     if (!str) return '';
@@ -418,13 +421,13 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           {senderAliases.map((alias, index) => (
             <TouchableOpacity
               key={alias.email_address}
-              style={[styles.pickerOption, senderAddress === alias.email_address && styles.pickerOptionActive]}
-              onPress={() => { setSenderAddress(alias.email_address); setShowSenderPicker(false); }}
+              style={[styles.pickerOption, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionActive]}
+              onPress={() => { setSenderAddress(alias.name && alias.name !== 'Standard' ? `${alias.name} <${alias.email_address}>` : alias.email_address); setShowSenderPicker(false); }}
             >
-              <Text style={[styles.pickerOptionText, senderAddress === alias.email_address && styles.pickerOptionTextActive]} numberOfLines={1}>
+              <Text style={[styles.pickerOptionText, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionTextActive]} numberOfLines={1}>
                 {alias.name && alias.name !== 'Standard' ? `${alias.name} <${alias.email_address}>` : alias.email_address}
               </Text>
-              {senderAddress === alias.email_address && <Feather name="check" size={16} color={Colors.primary} />}
+              {extractEmail(senderAddress) === alias.email_address && <Feather name="check" size={16} color={Colors.primary} />}
             </TouchableOpacity>
           ))}
         </View>
