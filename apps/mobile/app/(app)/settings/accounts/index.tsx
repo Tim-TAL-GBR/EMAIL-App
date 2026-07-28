@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, ActivityIndicator, Alert, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../../lib/constants';
+import { Colors, Spacing, FontFamily, FontSize, FontWeight, BorderRadius, Layout } from '../../../../lib/constants';
 import { useInboxes } from '../../../../hooks/useInboxes';
 import { supabase } from '../../../../lib/supabase';
 
@@ -978,93 +978,83 @@ export default function AccountsSettingsScreen() {
 
   const renderEditAliasModal = () => (
     <View style={styles.modalOverlay}>
-      <View style={styles.modalContainer}>
-        {/* Modal Sidebar */}
-        <View style={styles.modalSidebar}>
-          <View style={styles.modalSidebarHeader}>
-            <Text style={styles.modalSidebarTitle}>Alias bearbeiten</Text>
-            <TouchableOpacity onPress={() => setEditingAlias(false)}>
-              <Text style={styles.closeIcon}>✕</Text>
+      <View style={[styles.modalContainer, { width: 520, height: 600, flexDirection: 'column' }]}>
+        <View style={styles.editAliasHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <View style={[styles.avatarMock, { width: 40, height: 40, borderRadius: 20, marginRight: Spacing.md }]}>
+              <Text style={styles.avatarMockText}>{account?.name?.substring(0, 2).toUpperCase()}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.mainHeaderTitle}>{account?.email_address}</Text>
+              <Text style={styles.mainHeaderSubtitle}>{account?.type === 'private' ? 'IMAP-Konto' : 'Geteiltes Konto'}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setEditingAlias(false)} style={styles.editAliasCloseBtn}>
+              <Text style={styles.editAliasCloseBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView>
-            <TouchableOpacity 
-              style={[styles.modalTab, true && styles.modalTabActive]}
-              onPress={() => {}}
-            >
-              <Text style={[styles.modalTabText, true && styles.modalTabTextActive]}>Alias</Text>
-            </TouchableOpacity>
-          </ScrollView>
         </View>
 
-        {/* Modal Content */}
-        <View style={styles.modalMain}>
-          <View style={styles.modalMainHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={[styles.avatarMock, { marginRight: Spacing.md }]}><Text style={styles.avatarMockText}>{account?.name?.substring(0, 2).toUpperCase()}</Text></View>
-              <View>
-                <Text style={styles.mainHeaderTitle}>{account?.email_address}</Text>
-                <Text style={styles.mainHeaderSubtitle}>{account?.type}</Text>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.editAliasContent}>
+          <View style={styles.editAliasSection}>
+            <Text style={styles.editAliasSectionTitle}>Allgemein</Text>
+            <View style={styles.editAliasCard}>
+              <View style={styles.editAliasField}>
+                <Text style={styles.editAliasLabel}>Adresse</Text>
+                <Text style={styles.editAliasHint}>Du hast delegierten Zugriff, die Adresse kann nicht bearbeitet werden.</Text>
+                <View style={styles.editAliasInputDisabled}>
+                  <Text style={styles.editAliasInputDisabledText}>{account?.email_address}</Text>
+                </View>
+              </View>
+              <View style={styles.editAliasField}>
+                <Text style={styles.editAliasLabel}>Name</Text>
+                <Text style={styles.editAliasHint}>Der Name, der auf deinen gesendeten E-Mails erscheint.</Text>
+                <TextInput style={styles.editAliasInput} value={accountName} onChangeText={setAccountName} placeholder="Tim Regener" placeholderTextColor={Colors.textTertiary} />
+              </View>
+              <View style={[styles.editAliasField, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+                <Text style={styles.editAliasLabel}>Beschreibung</Text>
+                <Text style={styles.editAliasHint}>Unterscheide deine Aliase im Composer. Dies wird von den Empfängern nicht gesehen.</Text>
+                <TextInput style={styles.editAliasInput} placeholder='z.B. "Lange Signatur"' placeholderTextColor={Colors.textTertiary} />
               </View>
             </View>
           </View>
-          
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.modalContentPad}>
-            <Text style={styles.sectionTitle}>Allgemein</Text>
-            <View style={styles.card}>
-              <View style={styles.settingBlock}>
-                <Text style={styles.settingLabel}>Adresse</Text>
-                <Text style={styles.settingSubLabel}>Du hast delegierten Zugriff, die Adresse kann nicht bearbeitet werden.</Text>
-                <TextInput style={[styles.input, { backgroundColor: Colors.background }]} editable={false} value={account?.email_address} />
-              </View>
-              <View style={styles.settingBlock}>
-                <Text style={styles.settingLabel}>Name</Text>
-                <Text style={styles.settingSubLabel}>Der Name, der auf deinen gesendeten E-Mails erscheint.</Text>
-                <TextInput style={styles.input} value={accountName} onChangeText={setAccountName} placeholder="Tim Regener" />
-              </View>
-              <View style={styles.settingBlock}>
-                <Text style={styles.settingLabel}>Beschreibung</Text>
-                <Text style={styles.settingSubLabel}>Unterscheide deine Aliase im Composer. Dies wird von den Empfängern nicht gesehen.</Text>
-                <TextInput style={styles.input} placeholder='z.B. "Lange Signatur"' placeholderTextColor={Colors.textTertiary} />
-              </View>
-            </View>
 
-            <Text style={styles.sectionTitle}>Optionen</Text>
-            <View style={styles.card}>
-              <View style={styles.settingRowModal}>
-                <Text style={styles.settingLabel}>Diesen Alias im "Von"-Feld des Composers ausblenden</Text>
+          <View style={styles.editAliasSection}>
+            <Text style={styles.editAliasSectionTitle}>Optionen</Text>
+            <View style={styles.editAliasCard}>
+              <View style={styles.editAliasRow}>
+                <Text style={[styles.editAliasLabel, { flex: 1, marginBottom: 0 }]}>Diesen Alias im "Von"-Feld des Composers ausblenden</Text>
                 <Switch trackColor={{ false: Colors.border, true: Colors.info }} thumbColor="#FFF" ios_backgroundColor={Colors.border} />
               </View>
-              <View style={styles.settingRowModalBorderFree}>
-                <Text style={styles.settingLabel}>Beim Antworten niemals automatisch als Absender auswählen</Text>
+              <View style={[styles.editAliasRow, { borderBottomWidth: 0, paddingBottom: 0, marginBottom: 0 }]}>
+                <Text style={[styles.editAliasLabel, { flex: 1, marginBottom: 0 }]}>Beim Antworten niemals automatisch als Absender auswählen</Text>
                 <Switch trackColor={{ false: Colors.border, true: Colors.info }} thumbColor="#FFF" ios_backgroundColor={Colors.border} />
               </View>
             </View>
-
-            <Text style={styles.sectionTitle}>Auto Cc / Bcc</Text>
-            <View style={styles.card}>
-              <Text style={styles.settingSubLabel}>Füge beim Senden über diesen Alias automatisch Empfänger in die Felder Cc oder Bcc ein.</Text>
-              <View style={{ marginTop: Spacing.md }}>
-                <Text style={styles.settingLabel}>Cc</Text>
-                <TextInput style={styles.input} />
-              </View>
-              <View style={{ marginTop: Spacing.md }}>
-                <Text style={styles.settingLabel}>Bcc</Text>
-                <TextInput style={styles.input} />
-              </View>
-            </View>
-          </ScrollView>
-
-          <View style={styles.modalFooter}>
-            <TouchableOpacity onPress={() => setEditingAlias(false)}>
-              <Text style={styles.dangerText}>Abbrechen</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={{ marginLeft: Spacing.xl }} onPress={handleSaveAccount} disabled={isSavingAccount}>
-              <Text style={[styles.linkText, { color: Colors.textTertiary }, isSavingAccount && { opacity: 0.5 }]}>
-                {isSavingAccount ? "Speichert..." : "Aktualisieren"}
-              </Text>
-            </TouchableOpacity>
           </View>
+
+          <View style={styles.editAliasSection}>
+            <Text style={styles.editAliasSectionTitle}>Auto Cc / Bcc</Text>
+            <View style={styles.editAliasCard}>
+              <Text style={styles.editAliasHint}>Füge beim Senden über diesen Alias automatisch Empfänger in die Felder Cc oder Bcc ein.</Text>
+              <View style={styles.editAliasField}>
+                <Text style={styles.editAliasLabel}>Cc</Text>
+                <TextInput style={styles.editAliasInput} placeholder="cc@example.com" placeholderTextColor={Colors.textTertiary} />
+              </View>
+              <View style={[styles.editAliasField, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+                <Text style={styles.editAliasLabel}>Bcc</Text>
+                <TextInput style={styles.editAliasInput} placeholder="bcc@example.com" placeholderTextColor={Colors.textTertiary} />
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={styles.editAliasFooter}>
+          <TouchableOpacity onPress={() => setEditingAlias(false)} style={styles.editAliasCancelBtn}>
+            <Text style={styles.editAliasCancelText}>Abbrechen</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleSaveAccount} disabled={isSavingAccount} style={[styles.editAliasSaveBtn, isSavingAccount && { opacity: 0.6 }]}>
+            <Text style={styles.editAliasSaveText}>{isSavingAccount ? 'Speichert…' : 'Aktualisieren'}</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -1960,6 +1950,136 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily,
     fontSize: FontSize.md,
     color: Colors.textTertiary,
+  },
+  editAliasHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  editAliasCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.surfaceHover,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: Spacing.sm,
+  },
+  editAliasCloseBtnText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.bold,
+  },
+  editAliasContent: {
+    padding: Spacing.xl,
+  },
+  editAliasSection: {
+    marginBottom: Spacing.xl,
+  },
+  editAliasSectionTitle: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+    letterSpacing: 0.3,
+  },
+  editAliasCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  editAliasField: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  editAliasLabel: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  editAliasHint: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    marginBottom: Spacing.sm,
+    lineHeight: 16,
+  },
+  editAliasInput: {
+    backgroundColor: Colors.surfaceHover,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    color: Colors.text,
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+  },
+  editAliasInputDisabled: {
+    backgroundColor: Colors.surfaceHover,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    opacity: 0.6,
+  },
+  editAliasInputDisabledText: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  editAliasRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  editAliasFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    backgroundColor: Colors.surface,
+    gap: Spacing.md,
+  },
+  editAliasCancelBtn: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.sm,
+  },
+  editAliasCancelText: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    color: Colors.textSecondary,
+  },
+  editAliasSaveBtn: {
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.md,
+  },
+  editAliasSaveText: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: '#FFF',
   },
   modalOverlay: {
     position: 'absolute',
