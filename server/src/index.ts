@@ -17,6 +17,7 @@ import { pushRouter } from "./routes/push.routes.js";
 import { teamRouter } from "./routes/team.routes.js";
 import { shopifyRouter } from "./routes/shopify.routes.js";
 import { userEmailSettingsRouter } from "./routes/userEmailSettings.routes.js";
+import { taskRouter } from "./routes/task.routes.js";
 import { startEmailWorker } from "./services/queue.service.js";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ app.use("/api/push", pushRouter);
 app.use("/api/teams", teamRouter);
 app.use("/api/shopify", shopifyRouter);
 app.use("/api/user-email-settings", userEmailSettingsRouter);
+app.use("/api/tasks", taskRouter);
 
 // Global error handler — no stack traces in production
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

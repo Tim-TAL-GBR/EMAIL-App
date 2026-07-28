@@ -23,6 +23,9 @@ export * from './types/email.js';
 /** Composite team types with member profiles. */
 export * from './types/team.js';
 
+/** Composite task types with profiles and comments. */
+export * from './types/task.js';
+
 /** WebSocket message types and channel utilities for real-time subscriptions. */
 export * from './types/realtime.js';
 

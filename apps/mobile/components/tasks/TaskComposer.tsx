@@ -10,19 +10,20 @@ import { Feather } from '@expo/vector-icons';
 interface TaskComposerProps {
   visible: boolean;
   onClose: () => void;
-  teamId?: string; // If provided, default to this team
-  task?: Task; // If provided, we are editing
+  teamId?: string;
+  task?: Task;
   linkedEmailId?: string;
 }
 
 export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, linkedEmailId }: TaskComposerProps) {
   const { user } = useAuthStore();
-  const { createTask, updateTask } = useTasks(initialTeamId);
+  const { createTask, updateTask } = useTasks();
   
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [teamId, setTeamId] = useState(initialTeamId || '');
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
+  const [dueDate, setDueDate] = useState('');
   
   const [myTeams, setMyTeams] = useState<any[]>([]);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
@@ -36,11 +37,13 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
         setDescription(task.description || '');
         setTeamId(task.team_id);
         setAssignedTo(task.assigned_to);
+        setDueDate(task.due_date ? task.due_date.split('T')[0] : '');
       } else {
         setTitle('');
         setDescription('');
         setTeamId(initialTeamId || '');
         setAssignedTo(null);
+        setDueDate('');
       }
       loadMyTeams();
     }
@@ -55,7 +58,6 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
   }, [teamId]);
 
   const loadMyTeams = async () => {
-    // Actually we can just query teams, RLS will filter to our teams
     const { data } = await supabase.from('teams').select('id, name');
     setMyTeams(data || []);
     if (!teamId && data && data.length > 0) {
@@ -64,7 +66,6 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
   };
 
   const loadTeamMembers = async (tId: string) => {
-    // Get profiles for team members
     const { data } = await supabase
       .from('team_members')
       .select('user_id, profiles(id, display_name, email)')
@@ -86,7 +87,8 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
           description: description.trim() || null,
           team_id: teamId,
           assigned_to: assignedTo,
-        });
+          due_date: dueDate ? new Date(dueDate + 'T00:00:00').toISOString() : null,
+        } as any);
       } else {
         await createTask({
           title: title.trim(),
@@ -94,6 +96,7 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
           team_id: teamId,
           assigned_to: assignedTo,
           linked_email_id: linkedEmailId || null,
+          due_date: dueDate ? new Date(dueDate + 'T00:00:00').toISOString() : null,
         });
       }
       onClose();
@@ -144,6 +147,35 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
               placeholder="Weitere Details..."
               multiline
             />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Fälligkeitsdatum (Optional)</Text>
+            {Platform.OS === 'web' ? (
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e: any) => setDueDate(e.target.value)}
+                style={{
+                  backgroundColor: Colors.surface,
+                  borderRadius: 8,
+                  padding: '12px',
+                  fontSize: 16,
+                  color: Colors.text,
+                  borderWidth: 1,
+                  borderColor: Colors.borderLight,
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+              />
+            ) : (
+              <TextInput
+                style={styles.input}
+                value={dueDate}
+                onChangeText={setDueDate}
+                placeholder="JJJJ-MM-TT"
+              />
+            )}
           </View>
           
           <View style={styles.inputGroup}>
@@ -232,7 +264,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   input: {
-    backgroundColor: Colors.backgroundSecondary,
+    backgroundColor: Colors.surface,
     borderRadius: 8,
     padding: Spacing.md,
     fontSize: FontSize.md,
@@ -253,7 +285,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: 16,
-    backgroundColor: Colors.backgroundSecondary,
+    backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.borderLight,
   },

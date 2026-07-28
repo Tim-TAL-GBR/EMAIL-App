@@ -777,6 +777,7 @@ export type Database = {
           due_date: string | null
           id: string
           linked_email_id: string | null
+          notification_sent: boolean | null
           status: string
           team_id: string
           title: string
@@ -790,6 +791,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           linked_email_id?: string | null
+          notification_sent?: boolean | null
           status?: string
           team_id: string
           title: string
@@ -803,6 +805,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           linked_email_id?: string | null
+          notification_sent?: boolean | null
           status?: string
           team_id?: string
           title?: string
@@ -835,6 +838,48 @@ export type Database = {
             columns: ["team_id"]
             isOneToOne: false
             referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      task_comments: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          task_id: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          task_id: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          task_id?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_comments_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_comments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1141,6 +1186,7 @@ export type TeamRole = Enums<'team_role'>
 export type Label = Tables<'labels'>
 export type Template = Tables<'templates'>
 export type Task = Tables<'tasks'>
+export type TaskComment = Tables<'task_comments'>
 export type Rule = Tables<'rules'>
 export type Signature = Tables<'signatures'>
 export type Notification = Tables<'notifications'>
