@@ -4,19 +4,22 @@ import { Colors, FontFamily, FontSize, Spacing, FontWeight } from '../../../lib/
 import { useTasks, Task } from '../../../hooks/useTasks';
 import { useAuthStore } from '../../../stores/authStore';
 import { useTeams } from '../../../hooks/useTeams';
+import { useTaskNavigation } from '../../../stores/taskNavigationStore';
 import { TaskListItem } from '../../../components/tasks/TaskListItem';
 import { TaskFilters, TaskFilter } from '../../../components/tasks/TaskFilters';
 import { TaskDetail } from '../../../components/tasks/TaskDetail';
 import { TaskComposer } from '../../../components/tasks/TaskComposer';
 import { Feather } from '@expo/vector-icons';
+import { Platform as RNPlatform } from 'react-native';
 
 export default function TasksScreen() {
   const { user } = useAuthStore();
   const { tasks, isLoading, toggleStatus, deleteTask, reload } = useTasks();
   const { teams } = useTeams();
+  const { selectedTaskId, setSelectedTaskId } = useTaskNavigation();
+  const isDesktop = Platform.OS === 'web';
 
   const [activeFilter, setActiveFilter] = useState<TaskFilter>('open');
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showComposer, setShowComposer] = useState(false);
 
   const taskCounts = useMemo(() => {
@@ -107,7 +110,7 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (task: Task) => {
-    setSelectedTask(task);
+    setSelectedTaskId(task.id);
   };
 
   const renderTeamSection = (teamKey: string, teamTasks: Task[]) => {
@@ -132,11 +135,13 @@ export default function TasksScreen() {
     );
   };
 
-  if (selectedTask) {
+  // On mobile, show task detail full-screen when selected
+  const selectedTask = selectedTaskId ? tasks.find(t => t.id === selectedTaskId) || null : null;
+  if (!isDesktop && selectedTask) {
     return (
       <TaskDetail
         task={selectedTask}
-        onClose={() => setSelectedTask(null)}
+        onClose={() => setSelectedTaskId(null)}
         onRefresh={reload}
       />
     );
