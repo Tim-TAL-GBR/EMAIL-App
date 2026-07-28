@@ -81,8 +81,8 @@ export default function TasksScreen() {
   const groupedTasks = useMemo(() => {
     const groups = new Map<string, Task[]>();
     for (const task of filteredTasks) {
-      const teamName = task.team?.name || 'Ohne Team';
-      const teamId = task.team_id;
+      const teamName = task.team?.name || 'Privat';
+      const teamId = task.team_id || 'private';
       const key = `${teamId}|${teamName}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(task);
@@ -115,10 +115,11 @@ export default function TasksScreen() {
 
   const renderTeamSection = (teamKey: string, teamTasks: Task[]) => {
     const [teamId, teamName] = teamKey.split('|');
+    const isPrivate = teamId === 'private';
     return (
       <View key={teamKey} style={styles.teamSection}>
         <View style={styles.teamHeader}>
-          <Feather name="users" size={14} color={Colors.textSecondary} />
+          <Feather name={isPrivate ? "lock" : "users"} size={14} color={Colors.textSecondary} />
           <Text style={styles.teamName}>{teamName}</Text>
           <Text style={styles.teamCount}>{teamTasks.length}</Text>
         </View>

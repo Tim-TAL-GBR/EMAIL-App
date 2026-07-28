@@ -282,21 +282,26 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
                 currencyCode
               }
               numberOfOrders
-              orders(first: 5, sortKey: CREATED_AT, reverse: true) {
-                edges {
-                  node {
-                    id
-                    name
-                    createdAt
-                    displayFinancialStatus
-                    displayFulfillmentStatus
-                    totalPriceSet {
-                      shopMoney {
-                        amount
-                        currencyCode
-                      }
-                    }
-                  }
+            }
+          }
+        }
+      }
+    `;
+
+    const ordersQuery = `
+      query getOrdersByEmail($query: String!) {
+        orders(first: 5, query: $query, sortKey: CREATED_AT, reverse: true) {
+          edges {
+            node {
+              id
+              name
+              createdAt
+              displayFinancialStatus
+              displayFulfillmentStatus
+              totalPriceSet {
+                shopMoney {
+                  amount
+                  currencyCode
                 }
               }
             }
@@ -316,6 +321,26 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
 
     const apiJson = await apiRes.json();
     const customerData = apiJson?.data?.customers?.edges?.[0]?.node;
+
+    // Fetch orders separately since Customer.orders often returns empty edges
+    let orders = customerData?.numberOfOrders !== "0" ? [] : [];
+    if (customerData && customerData.numberOfOrders !== "0") {
+      const ordersRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-04/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": connection.access_token,
+        },
+        body: JSON.stringify({ query: ordersQuery, variables: { query: `email:${email}` } }),
+      });
+      const ordersJson = await ordersRes.json();
+      orders = ordersJson?.data?.orders?.edges || [];
+    }
+
+    // Merge orders into customer data structure
+    if (customerData) {
+      customerData.orders = { edges: orders };
+    }
 
     if (!customerData) {
       return res.json({ customer: null });
@@ -422,13 +447,15 @@ shopifyRouter.get("/order/detail", requireAuth, async (req, res) => {
             id
             createdAt
             totalRefundedSet { shopMoney { amount currencyCode } }
-            refundLineItems {
-              quantity
-              subtotalSet { shopMoney { amount currencyCode } }
-              lineItem {
-                id
-                title
-                variantTitle
+            refundLineItems(first: 50) {
+              nodes {
+                quantity
+                subtotalSet { shopMoney { amount currencyCode } }
+                lineItem {
+                  id
+                  title
+                  variantTitle
+                }
               }
             }
           }
@@ -446,6 +473,9 @@ shopifyRouter.get("/order/detail", requireAuth, async (req, res) => {
     });
 
     const apiJson = await apiRes.json();
+    if (apiJson.errors && apiJson.errors.length > 0) {
+      console.error("[Shopify] Order detail GraphQL errors:", JSON.stringify(apiJson.errors));
+    }
     const order = apiJson?.data?.order;
 
     if (!order) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, ScrollView, Image, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, ScrollView, Image, TextInput, Platform } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../lib/constants';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -16,6 +16,14 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+
+  const webAlert = (title: string, msg: string) => {
+    if (Platform.OS === 'web') {
+      window.alert(`${title}\n${msg}`);
+    } else {
+      Alert.alert(title, msg);
+    }
+  };
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [orderDetail, setOrderDetail] = useState<any>(null);
@@ -82,7 +90,8 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
       const json = await response.json();
       setOrderDetail(json.order);
     } catch (err: any) {
-      Alert.alert('Fehler', err.message);
+      console.error('Failed to fetch order detail:', err.message);
+      webAlert('Fehler', err.message);
       setSelectedOrderId(null);
     } finally {
       setOrderDetailLoading(false);
@@ -90,45 +99,67 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
   }, [teamId, session?.access_token]);
 
   const handleCancelOrder = async (orderId: string) => {
-    Alert.alert(
-      'Bestellung stornieren',
-      'Möchtest du diese Bestellung wirklich in Shopify stornieren?',
-      [
-        { text: 'Abbrechen', style: 'cancel' },
-        { 
-          text: 'Stornieren', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setCancelling(true);
-              const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-              const response = await fetch(`${baseUrl}/api/shopify/order/cancel`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${session?.access_token}`
-                },
-                body: JSON.stringify({ teamId, orderId })
-              });
-
-              if (!response.ok) {
-                const errJson = await response.json();
-                throw new Error(errJson.error || 'Fehler beim Stornieren');
+    if (Platform.OS === 'web') {
+      if (!window.confirm('Bestellung wirklich in Shopify stornieren?')) return;
+      try {
+        setCancelling(true);
+        const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+        const response = await fetch(`${baseUrl}/api/shopify/order/cancel`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({ teamId, orderId })
+        });
+        if (!response.ok) {
+          const errJson = await response.json();
+          throw new Error(errJson.error || 'Fehler beim Stornieren');
+        }
+        webAlert('Erfolg', 'Bestellung wurde storniert.');
+        if (selectedOrderId) fetchOrderDetail(selectedOrderId);
+      } catch (err: any) {
+        webAlert('Fehler', err.message);
+      } finally {
+        setCancelling(false);
+      }
+    } else {
+      Alert.alert(
+        'Bestellung stornieren',
+        'Möchtest du diese Bestellung wirklich in Shopify stornieren?',
+        [
+          { text: 'Abbrechen', style: 'cancel' },
+          { 
+            text: 'Stornieren', 
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                setCancelling(true);
+                const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+                const response = await fetch(`${baseUrl}/api/shopify/order/cancel`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`
+                  },
+                  body: JSON.stringify({ teamId, orderId })
+                });
+                if (!response.ok) {
+                  const errJson = await response.json();
+                  throw new Error(errJson.error || 'Fehler beim Stornieren');
+                }
+                Alert.alert('Erfolg', 'Bestellung wurde storniert.');
+                if (selectedOrderId) fetchOrderDetail(selectedOrderId);
+              } catch (err: any) {
+                Alert.alert('Fehler', err.message);
+              } finally {
+                setCancelling(false);
               }
-              
-              Alert.alert('Erfolg', 'Bestellung wurde storniert.');
-              if (selectedOrderId) {
-                fetchOrderDetail(selectedOrderId);
-              }
-            } catch (err: any) {
-              Alert.alert('Fehler', err.message);
-            } finally {
-              setCancelling(false);
             }
           }
-        }
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const openInShopify = (path: string) => {
@@ -159,11 +190,11 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
       if (json.order) {
         setOrderDetail((prev: any) => ({ ...prev, ...json.order }));
       }
-      Alert.alert('Erfolg', 'Bestellung aktualisiert.');
+      webAlert('Erfolg', 'Bestellung aktualisiert.');
       setEditingNote(false);
       setEditingAddress(false);
     } catch (err: any) {
-      Alert.alert('Fehler', err.message);
+      webAlert('Fehler', err.message);
     } finally {
       setUpdating(false);
     }
@@ -376,8 +407,8 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
         {order.discountCodes?.length > 0 && (
           <View style={styles.detailSection}>
             <Text style={styles.detailSectionTitle}>Rabattcodes</Text>
-            {order.discountCodes.map((code: string, idx: number) => (
-              <Text key={idx} style={styles.discountCode}>{code}</Text>
+            {order.discountCodes.map((dc: any, idx: number) => (
+              <Text key={idx} style={styles.discountCode}>{dc.code || dc}{dc.amount && dc.amount !== '0.0' ? ` (${dc.amount})` : ''}</Text>
             ))}
           </View>
         )}
@@ -392,7 +423,7 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
                   <Text style={styles.refundDate}>{formatDate(refund.createdAt)}</Text>
                   <Text style={styles.refundTotal}>-{formatMoney(refund.totalRefundedSet)}</Text>
                 </View>
-                {refund.refundLineItems?.map((rli: any, rliIdx: number) => (
+                {refund.refundLineItems?.nodes?.map((rli: any, rliIdx: number) => (
                   <View key={rliIdx} style={styles.refundItem}>
                     <Text style={styles.refundItemTitle} numberOfLines={1}>
                       {rli.lineItem?.title}{rli.lineItem?.variantTitle ? ` — ${rli.lineItem.variantTitle}` : ''}

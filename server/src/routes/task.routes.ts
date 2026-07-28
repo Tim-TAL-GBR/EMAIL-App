@@ -14,12 +14,18 @@ async function canAccessTask(userId: string, taskId: string): Promise<boolean> {
   const supabase = getSupabaseAdmin();
   const { data: task } = await supabase
     .from("tasks")
-    .select("team_id")
+    .select("team_id, created_by")
     .eq("id", taskId)
     .single();
 
   if (!task) return false;
 
+  // Private task: only creator can access
+  if (!task.team_id) {
+    return task.created_by === userId;
+  }
+
+  // Team task: must be team member
   const { data: member } = await supabase
     .from("team_members")
     .select("user_id")
@@ -44,14 +50,10 @@ taskRouter.get("/", async (req, res) => {
       .select("team_id")
       .eq("user_id", userId);
 
-    if (!memberships || memberships.length === 0) {
-      res.json({ tasks: [] });
-      return;
-    }
+    const teamIds = (memberships || []).map((m) => m.team_id);
 
-    const teamIds = memberships.map((m) => m.team_id);
-
-    const { data: tasks, error } = await supabase
+    // Fetch team tasks + private tasks (created by user)
+    let query = supabase
       .from("tasks")
       .select(`
         *,
@@ -60,8 +62,15 @@ taskRouter.get("/", async (req, res) => {
         team:teams ( id, name ),
         task_comments ( id )
       `)
-      .in("team_id", teamIds)
       .order("created_at", { ascending: false });
+
+    if (teamIds.length > 0) {
+      query = query.or(`team_id.in.(${teamIds.join(',')}),and(team_id.is.null,created_by.eq.${userId})`);
+    } else {
+      query = query.eq("created_by", userId).is("team_id", null);
+    }
+
+    const { data: tasks, error } = await query;
 
     if (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -139,24 +148,22 @@ taskRouter.post("/", async (req, res) => {
       res.status(400).json({ error: "Title is required" });
       return;
     }
-    if (!team_id) {
-      res.status(400).json({ error: "team_id is required" });
-      return;
-    }
 
     const supabase = getSupabaseAdmin();
 
-    // Verify user is member of the team
-    const { data: member } = await supabase
-      .from("team_members")
-      .select("user_id")
-      .eq("team_id", team_id)
-      .eq("user_id", userId)
-      .single();
+    // Verify team membership if team_id is provided
+    if (team_id) {
+      const { data: member } = await supabase
+        .from("team_members")
+        .select("user_id")
+        .eq("team_id", team_id)
+        .eq("user_id", userId)
+        .single();
 
-    if (!member) {
-      res.status(403).json({ error: "You are not a member of this team" });
-      return;
+      if (!member) {
+        res.status(403).json({ error: "You are not a member of this team" });
+        return;
+      }
     }
 
     const { data: task, error } = await supabase

@@ -11,47 +11,51 @@ export interface TeamData {
 }
 
 let cachedTeams: TeamData[] | null = null;
-let fetchPromise: Promise<TeamData[]> | null = null;
+let lastFetchAttempt = 0;
 
 export function useTeams() {
   const [teams, setTeams] = useState<TeamData[]>(cachedTeams ?? []);
-  const [isLoading, setIsLoading] = useState(!cachedTeams);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (cachedTeams) {
+    if (cachedTeams !== null) {
       setTeams(cachedTeams);
-      setIsLoading(false);
       return;
     }
 
-    if (!fetchPromise) {
-      fetchPromise = (async (): Promise<TeamData[]> => {
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const res = await fetch(`${API_URL}/api/teams`, {
-            headers: { 'Authorization': `Bearer ${session?.access_token}` },
-          });
-          const data = await res.json();
-          cachedTeams = data || [];
-          return cachedTeams!;
-        } catch (e) {
-          console.error('Failed to fetch teams:', e);
-          cachedTeams = [];
-          return cachedTeams;
-        } finally {
-          fetchPromise = null;
+    // Avoid fetching more than once every 30s
+    const now = Date.now();
+    if (now - lastFetchAttempt < 30_000 && lastFetchAttempt > 0) return;
+    lastFetchAttempt = now;
+
+    setIsLoading(true);
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          console.warn('[useTeams] No session available, will retry');
+          return;
         }
-      })();
-    }
-
-    fetchPromise.then(data => {
-      setTeams(data ?? []);
-      setIsLoading(false);
-    });
+        const res = await fetch(`${API_URL}/api/teams`, {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const arr = Array.isArray(data) ? data : [];
+        cachedTeams = arr;
+        setTeams(arr);
+      } catch (e) {
+        console.error('Failed to fetch teams:', e);
+        // Don't cache failures – allow retry on next mount
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   }, []);
-
-  const orgs = teams.filter(t => !t.parent_id);
-  const getSubTeams = (orgId: string) => teams.filter(t => t.parent_id === orgId);
-
-  return { teams, orgs, getSubTeams, isLoading };
+  
+  const safeTeams = Array.isArray(teams) ? teams : [];
+  const orgs = safeTeams.filter(t => !t.parent_id);
+  const getSubTeams = (orgId: string) => safeTeams.filter(t => t.parent_id === orgId);
+  
+  return { teams: safeTeams, orgs, getSubTeams, isLoading };
 }

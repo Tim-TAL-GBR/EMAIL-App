@@ -17,30 +17,80 @@ inboxRouter.get("/", async (req, res) => {
     const userId = req.user!.sub;
     const supabase = getSupabaseAdmin();
 
-    const { data: inboxes, error } = await supabase
+    // Get user's teams (both direct team membership and parent orgs)
+    const { data: userTeams } = await supabase
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", userId);
+
+    const userTeamIds = (userTeams ?? []).map(t => t.team_id);
+
+    // Get parent org IDs for teams where user is a member (org membership via sub-team)
+    const { data: teamsWithOrgs } = await supabase
+      .from("teams")
+      .select("id, parent_id")
+      .in("id", userTeamIds.length > 0 ? userTeamIds : ['00000000-0000-0000-0000-000000000000']);
+
+    const accessibleTeamIds = new Set<string>(userTeamIds);
+    for (const t of teamsWithOrgs ?? []) {
+      if (t.parent_id) accessibleTeamIds.add(t.parent_id);
+    }
+
+    const accessibleTeamArr = Array.from(accessibleTeamIds);
+
+    // Shared inboxes: user is in inbox_members, or team member, or org member
+    const { data: allShared, error: sharedError } = await supabase
       .from("inboxes")
-      .select("*, inbox_members!inner(role)")
-      .eq("inbox_members.user_id", userId)
+      .select("*, inbox_members(user_id, role)")
+      .eq("type", "shared")
       .order("name");
 
-    if (error) {
-      res.status(500).json({ error: safeErrorMessage(error) });
+    if (sharedError) {
+      res.status(500).json({ error: safeErrorMessage(sharedError) });
       return;
     }
 
-    const { data: ownedInboxes } = await supabase
+    const accessibleInboxes = (allShared ?? []).filter(inbox => {
+      // inbox_members entry matching this user
+      if (inbox.inbox_members?.some((m: any) => m.user_id === userId)) {
+        return true;
+      }
+      // team_members entry
+      if (inbox.team_id && userTeamIds.includes(inbox.team_id)) {
+        return true;
+      }
+      // org member (user is in a sub-team of the inbox's team, or inbox team is user's team's parent)
+      if (inbox.team_id && accessibleTeamIds.has(inbox.team_id)) {
+        return true;
+      }
+      return false;
+    });
+
+    // Private inboxes owned by the user
+    const { data: ownedInboxes, error: ownedError } = await supabase
       .from("inboxes")
       .select("*, inbox_members(role)")
       .eq("type", "private")
       .eq("owner_id", userId)
       .order("name");
 
+    if (ownedError) {
+      console.error("[InboxRoutes] Failed to fetch owned inboxes:", ownedError.message);
+    }
+
     const merged = new Map<string, any>();
-    for (const ib of [...(inboxes ?? []), ...(ownedInboxes ?? [])]) {
+    for (const ib of [...accessibleInboxes, ...(ownedInboxes ?? [])]) {
       merged.set(ib.id, ib);
     }
 
-    res.json({ inboxes: Array.from(merged.values()) });
+    // For now we include inbox_members data only when it matches this user
+    // to avoid leaking other members' info
+    const result = Array.from(merged.values()).map(ib => {
+      // If the user matched via team/org (not inbox_members), inbox_members is irrelevant
+      return ib;
+    });
+
+    res.json({ inboxes: result });
   } catch (err: any) {
     console.error("[InboxRoutes] GET / error:", err);
     res.status(500).json({ error: safeErrorMessage(err) });

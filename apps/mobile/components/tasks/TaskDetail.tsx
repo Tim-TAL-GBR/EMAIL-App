@@ -31,6 +31,10 @@ export function TaskDetail({ task: initialTask, onClose, onRefresh }: TaskDetail
   }, [initialTask.id]);
 
   const loadMembers = async () => {
+    if (!initialTask.team_id) {
+      setTeamMembers([]);
+      return;
+    }
     const { supabase } = await import('../../lib/supabase');
     const { data } = await supabase
       .from('team_members')
@@ -211,7 +215,7 @@ export function TaskDetail({ task: initialTask, onClose, onRefresh }: TaskDetail
           <View style={styles.metaRow}>
             <Feather name="users" size={16} color={Colors.textTertiary} />
             <Text style={styles.metaLabel}>Team</Text>
-            <Text style={styles.metaValue}>{task.team?.name || '—'}</Text>
+            <Text style={styles.metaValue}>{task.team?.name || (task.team_id === null ? 'Privat' : '—')}</Text>
           </View>
 
           {/* Creator */}

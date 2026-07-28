@@ -5,7 +5,7 @@ const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
 
 export interface Task {
   id: string;
-  team_id: string;
+  team_id: string | null;
   created_by: string | null;
   assigned_to: string | null;
   linked_email_id: string | null;
@@ -99,7 +99,7 @@ export function useTasks() {
   const createTask = async (taskData: {
     title: string;
     description?: string | null;
-    team_id: string;
+  team_id: string | null;
     assigned_to?: string | null;
     linked_email_id?: string | null;
     due_date?: string | null;

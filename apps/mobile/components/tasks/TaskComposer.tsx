@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, ActivityIndicator, Platform, ScrollView } from 'react-native';
-import { Colors, Spacing, FontSize, FontWeight, FontFamily } from '../../lib/constants';
+import { View, Text, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { Colors, Spacing, FontSize, FontWeight } from '../../lib/constants';
 import { Button } from '../ui/Button';
 import { Task, useTasks } from '../../hooks/useTasks';
 import { supabase } from '../../lib/supabase';
-import { useAuthStore } from '../../stores/authStore';
+import { useTeams, TeamData } from '../../hooks/useTeams';
 import { Feather } from '@expo/vector-icons';
 
 interface TaskComposerProps {
@@ -16,87 +16,118 @@ interface TaskComposerProps {
 }
 
 export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, linkedEmailId }: TaskComposerProps) {
-  const { user } = useAuthStore();
   const { createTask, updateTask } = useTasks();
-  
+  const { teams, orgs, getSubTeams } = useTeams();
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [teamId, setTeamId] = useState(initialTeamId || '');
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState('');
-  
-  const [myTeams, setMyTeams] = useState<any[]>([]);
+
+  // Hierarchical selection
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null); // null = Privat
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null); // null = Gesamte Org
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
-  
+
   const [isSaving, setIsSaving] = useState(false);
-  
+
+  // Determine which team_id to use for saving
+  const effectiveTeamId = selectedTeamId || selectedOrgId || null;
+
   useEffect(() => {
     if (visible) {
       if (task) {
         setTitle(task.title);
         setDescription(task.description || '');
-        setTeamId(task.team_id);
         setAssignedTo(task.assigned_to);
         setDueDate(task.due_date ? task.due_date.split('T')[0] : '');
+        // Restore hierarchy from task's team_id
+        if (task.team_id) {
+          const parentOrg = teams.find(t => t.id === task.team_id && !t.parent_id);
+          const subTeam = teams.find(t => t.id === task.team_id && t.parent_id);
+          if (parentOrg) {
+            setSelectedOrgId(parentOrg.id);
+            setSelectedTeamId(null);
+          } else if (subTeam) {
+            setSelectedOrgId(subTeam.parent_id);
+            setSelectedTeamId(subTeam.id);
+          }
+        } else {
+          setSelectedOrgId(null);
+          setSelectedTeamId(null);
+        }
       } else {
         setTitle('');
         setDescription('');
-        setTeamId(initialTeamId || '');
         setAssignedTo(null);
         setDueDate('');
+        setSelectedOrgId(null);
+        setSelectedTeamId(null);
       }
-      loadMyTeams();
     }
-  }, [visible, task, initialTeamId]);
-  
+  }, [visible, task, teams]);
+
+  // Load team members when a specific sub-team is selected
   useEffect(() => {
-    if (teamId) {
-      loadTeamMembers(teamId);
+    if (selectedTeamId) {
+      loadTeamMembers(selectedTeamId);
+    } else if (selectedOrgId) {
+      // Load all members from the org
+      loadOrgMembers(selectedOrgId);
     } else {
       setTeamMembers([]);
     }
-  }, [teamId]);
-
-  const loadMyTeams = async () => {
-    const { data } = await supabase.from('teams').select('id, name');
-    setMyTeams(data || []);
-    if (!teamId && data && data.length > 0) {
-      setTeamId(data[0].id);
-    }
-  };
+  }, [selectedTeamId, selectedOrgId]);
 
   const loadTeamMembers = async (tId: string) => {
     const { data } = await supabase
       .from('team_members')
       .select('user_id, profiles(id, display_name, email)')
       .eq('team_id', tId);
-      
+    if (data) setTeamMembers(data.map(d => d.profiles).filter(Boolean));
+  };
+
+  const loadOrgMembers = async (orgId: string) => {
+    // Get all sub-team IDs + the org itself
+    const subTeamIds = getSubTeams(orgId).map(t => t.id);
+    const allTeamIds = [orgId, ...subTeamIds];
+
+    const { data } = await supabase
+      .from('team_members')
+      .select('user_id, profiles(id, display_name, email)')
+      .in('team_id', allTeamIds);
+
     if (data) {
-      setTeamMembers(data.map(d => d.profiles));
+      // Deduplicate by user_id
+      const seen = new Set<string>();
+      const unique = data.map(d => d.profiles).filter((p: any) => {
+        if (!p || seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+      setTeamMembers(unique);
     }
   };
 
   const handleSave = async () => {
-    if (!title.trim() || !teamId) return;
-    
+    if (!title.trim()) return;
+
     setIsSaving(true);
     try {
+      const payload = {
+        title: title.trim(),
+        description: description.trim() || null,
+        team_id: effectiveTeamId,
+        assigned_to: assignedTo,
+        due_date: dueDate ? new Date(dueDate + 'T00:00:00').toISOString() : null,
+      };
+
       if (task) {
-        await updateTask(task.id, {
-          title: title.trim(),
-          description: description.trim() || null,
-          team_id: teamId,
-          assigned_to: assignedTo,
-          due_date: dueDate ? new Date(dueDate + 'T00:00:00').toISOString() : null,
-        } as any);
+        await updateTask(task.id, payload as any);
       } else {
         await createTask({
-          title: title.trim(),
-          description: description.trim() || null,
-          team_id: teamId,
-          assigned_to: assignedTo,
+          ...payload,
           linked_email_id: linkedEmailId || null,
-          due_date: dueDate ? new Date(dueDate + 'T00:00:00').toISOString() : null,
         });
       }
       onClose();
@@ -109,6 +140,8 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
 
   if (!visible) return null;
 
+  const subTeams = selectedOrgId ? getSubTeams(selectedOrgId) : [];
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle={Platform.OS === 'web' ? 'pageSheet' : 'fullScreen'}>
       <SafeAreaView style={styles.container}>
@@ -117,22 +150,22 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
             <Text style={styles.closeText}>Abbrechen</Text>
           </TouchableOpacity>
           <Text style={styles.title}>{task ? 'Task bearbeiten' : 'Neuer Task'}</Text>
-          <Button 
-            title="Speichern" 
-            size="sm" 
-            onPress={handleSave} 
-            isLoading={isSaving} 
-            disabled={!title.trim() || !teamId || isSaving} 
+          <Button
+            title="Speichern"
+            size="sm"
+            onPress={handleSave}
+            isLoading={isSaving}
+            disabled={!title.trim() || isSaving}
           />
         </View>
 
         <ScrollView style={styles.form}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Titel</Text>
-            <TextInput 
-              style={styles.input} 
-              value={title} 
-              onChangeText={setTitle} 
+            <TextInput
+              style={styles.input}
+              value={title}
+              onChangeText={setTitle}
               placeholder="Was ist zu tun?"
               autoFocus
             />
@@ -140,10 +173,10 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Beschreibung (Optional)</Text>
-            <TextInput 
-              style={[styles.input, styles.textArea]} 
-              value={description} 
-              onChangeText={setDescription} 
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={description}
+              onChangeText={setDescription}
               placeholder="Weitere Details..."
               multiline
             />
@@ -177,35 +210,71 @@ export function TaskComposer({ visible, onClose, teamId: initialTeamId, task, li
               />
             )}
           </View>
-          
+
+          {/* Row 1: Organisation / Privat */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Team</Text>
+            <Text style={styles.label}>Organisation</Text>
             <View style={styles.pillContainer}>
-              {myTeams.map(t => (
-                <TouchableOpacity 
-                  key={t.id} 
-                  style={[styles.pill, teamId === t.id && styles.pillActive]}
-                  onPress={() => setTeamId(t.id)}
+              <TouchableOpacity
+                style={[styles.pill, selectedOrgId === null && styles.pillActive]}
+                onPress={() => { setSelectedOrgId(null); setSelectedTeamId(null); setAssignedTo(null); }}
+              >
+                <Feather name="lock" size={13} color={selectedOrgId === null ? '#FFF' : Colors.textSecondary} />
+                <Text style={[styles.pillText, selectedOrgId === null && styles.pillTextActive]}>Privat</Text>
+              </TouchableOpacity>
+              {orgs.map(org => (
+                <TouchableOpacity
+                  key={org.id}
+                  style={[styles.pill, selectedOrgId === org.id && styles.pillActive]}
+                  onPress={() => { setSelectedOrgId(org.id); setSelectedTeamId(null); setAssignedTo(null); }}
                 >
-                  <Text style={[styles.pillText, teamId === t.id && styles.pillTextActive]}>{t.name}</Text>
+                  <Feather name="briefcase" size={13} color={selectedOrgId === org.id ? '#FFF' : Colors.textSecondary} />
+                  <Text style={[styles.pillText, selectedOrgId === org.id && styles.pillTextActive]}>{org.name}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
-          
-          {teamId && (
+
+          {/* Row 2: Teams innerhalb der Org (nur wenn Org gewählt) */}
+          {selectedOrgId && subTeams.length > 0 && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Team</Text>
+              <View style={styles.pillContainer}>
+                <TouchableOpacity
+                  style={[styles.pill, selectedTeamId === null && styles.pillActive]}
+                  onPress={() => { setSelectedTeamId(null); setAssignedTo(null); }}
+                >
+                  <Feather name="users" size={13} color={selectedTeamId === null ? '#FFF' : Colors.textSecondary} />
+                  <Text style={[styles.pillText, selectedTeamId === null && styles.pillTextActive]}>Gesamte Organisation</Text>
+                </TouchableOpacity>
+                {subTeams.map(team => (
+                  <TouchableOpacity
+                    key={team.id}
+                    style={[styles.pill, selectedTeamId === team.id && styles.pillActive]}
+                    onPress={() => { setSelectedTeamId(team.id); setAssignedTo(null); }}
+                  >
+                    <Feather name="users" size={13} color={selectedTeamId === team.id ? '#FFF' : Colors.textSecondary} />
+                    <Text style={[styles.pillText, selectedTeamId === team.id && styles.pillTextActive]}>{team.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Row 3: Nutzer (wenn Org oder Team gewählt) */}
+          {(selectedOrgId || selectedTeamId) && (
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Zuweisen an</Text>
               <View style={styles.pillContainer}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.pill, assignedTo === null && styles.pillActive]}
                   onPress={() => setAssignedTo(null)}
                 >
                   <Text style={[styles.pillText, assignedTo === null && styles.pillTextActive]}>Niemanden</Text>
                 </TouchableOpacity>
                 {teamMembers.map((m: any) => m && (
-                  <TouchableOpacity 
-                    key={m.id} 
+                  <TouchableOpacity
+                    key={m.id}
                     style={[styles.pill, assignedTo === m.id && styles.pillActive]}
                     onPress={() => setAssignedTo(m.id)}
                   >
@@ -282,6 +351,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: 16,
@@ -300,5 +372,5 @@ const styles = StyleSheet.create({
   pillTextActive: {
     color: '#fff',
     fontWeight: FontWeight.medium,
-  }
+  },
 });
