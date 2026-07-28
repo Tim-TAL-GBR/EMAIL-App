@@ -104,6 +104,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>({ field: 'from', operator: 'equals', value: '' });
   const [taskComposerVisible, setTaskComposerVisible] = useState(false);
   const [showShopifyPanel, setShowShopifyPanel] = useState(false);
+  const [shopifyHasCustomer, setShopifyHasCustomer] = useState<boolean | null>(null);
 
   const handleStatusChange = async (id: string, status: 'open' | 'in_progress' | 'done') => {
     await updateEmailStatus(id, status);
@@ -289,11 +290,11 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
                 <Text style={styles.subjectText} numberOfLines={1}>{selectedThread.subject}</Text>
                 <TouchableOpacity
-                  style={[styles.shopifyChip, showShopifyPanel && styles.shopifyChipActive]}
+                  style={[styles.shopifyChip, showShopifyPanel && styles.shopifyChipActive, shopifyHasCustomer === true && !showShopifyPanel && styles.shopifyChipFound, shopifyHasCustomer === false && !showShopifyPanel && styles.shopifyChipNotFound]}
                   onPress={() => setShowShopifyPanel(!showShopifyPanel)}
                 >
-                  <Feather name="shopping-bag" size={13} color={showShopifyPanel ? '#FFF' : '#96BF48'} />
-                  <Text style={[styles.shopifyChipText, showShopifyPanel && styles.shopifyChipTextActive]}>Shopify</Text>
+                  <Feather name="shopping-bag" size={13} color={showShopifyPanel ? '#FFF' : shopifyHasCustomer === false ? '#C62828' : '#96BF48'} />
+                  <Text style={[styles.shopifyChipText, showShopifyPanel && styles.shopifyChipTextActive, shopifyHasCustomer === false && !showShopifyPanel && styles.shopifyChipTextNotFound]}>Shopify</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -308,6 +309,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             email={selectedThread.latestEmail.from_address} 
             teamId={selectedThread.latestEmail.team_id}
             detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
+            onResult={(has) => setShopifyHasCustomer(has)}
           />
         </View>
       )}
@@ -484,6 +486,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#96BF48',
     borderColor: '#96BF48',
   },
+  shopifyChipFound: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#96BF48',
+  },
+  shopifyChipNotFound: {
+    backgroundColor: '#FFEBEE',
+    borderColor: '#C62828',
+  },
   shopifyChipText: {
     fontSize: 11,
     fontFamily: FontFamily,
@@ -492,6 +502,9 @@ const styles = StyleSheet.create({
   },
   shopifyChipTextActive: {
     color: '#FFF',
+  },
+  shopifyChipTextNotFound: {
+    color: '#C62828',
   },
   iconButton: {
     padding: Spacing.xs,

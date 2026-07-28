@@ -7,9 +7,10 @@ interface ShopifyCustomerCardProps {
   email: string;
   teamId?: string;
   detectedOrderNumber?: string;
+  onResult?: (hasCustomer: boolean) => void;
 }
 
-export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber }: ShopifyCustomerCardProps) {
+export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResult }: ShopifyCustomerCardProps) {
   const { session } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
@@ -46,6 +47,7 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber }: Shop
 
         if (response.status === 404) {
           setData(null);
+          onResult?.(false);
           return;
         }
 
@@ -55,6 +57,7 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber }: Shop
 
         const json = await response.json();
         setData(json);
+        onResult?.(!!json.customer);
       } catch (err: any) {
         setError(err.message);
       } finally {
