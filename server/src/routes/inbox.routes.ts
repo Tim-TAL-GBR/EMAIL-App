@@ -388,6 +388,14 @@ inboxRouter.get("/:inboxId/folders", async (req, res) => {
       return;
     }
 
+    // Try cached folders from the MailManager first
+    const { mailManager } = await import("../mail/MailManager.js");
+    const cachedClient = mailManager.getClient(inboxId);
+    if (cachedClient) {
+      res.json({ folders: cachedClient.getFolders() });
+      return;
+    }
+
     const supabase = getSupabaseAdmin();
     const { data: creds, error } = await supabase
       .from("inboxes")

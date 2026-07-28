@@ -32,6 +32,8 @@ export interface Email {
   is_read: boolean;
   is_starred: boolean;
   is_deleted: boolean;
+  is_archived: boolean;
+  mailbox_name: string;
   last_activity_at?: string;
   received_at: string;
   created_at: string;
@@ -132,9 +134,9 @@ interface EmailState {
   hasMoreEmails: boolean;
 
   /** Fetch emails for the active context */
-  fetchEmails: (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => Promise<void>;
+  fetchEmails: (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string, mailboxName?: string) => Promise<void>;
   /** Fetch next page of emails */
-  fetchMoreEmails: (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => Promise<void>;
+  fetchMoreEmails: (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string, mailboxName?: string) => Promise<void>;
   /** Set the active email/thread by ID */
   setActiveEmail: (id: string | null) => void;
   /** Get a single email by ID */
@@ -181,7 +183,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   _currentFetchId: 0,
   
-  fetchEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => {
+  fetchEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string, mailboxName?: string) => {
     const fetchId = Date.now();
     set({ isLoading: true, error: null, _currentFetchId: fetchId });
 
@@ -193,7 +195,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     try {
       const baseColumns = 'id, inbox_id, team_id, message_id, thread_id, subject, from_address, to_addresses, cc_addresses, bcc_addresses, direction, status, is_read, is_starred, is_deleted, is_archived, received_at, created_at, updated_at, imap_uid, mailbox_name, tags, snooze_until, last_activity_at, snippet';
 
-      let query = supabase
+      let query: any = supabase
         .from('emails')
         .select(
           labelId 
@@ -214,8 +216,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         query = query.eq('is_deleted', true);
       } else if (filterType === 'archived') {
         query = query.eq('is_archived', true);
-      } else {
+      } else if (!mailboxName) {
         query = query.eq('is_archived', false).eq('is_deleted', false);
+      }
+
+      if (mailboxName) {
+        query = query.eq('mailbox_name', mailboxName);
       }
       
       if (labelId) {
@@ -247,7 +253,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
   },
 
-  fetchMoreEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string) => {
+  fetchMoreEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string, mailboxName?: string) => {
     if (get().isLoadingMore || !get().hasMoreEmails) return;
     set({ isLoadingMore: true, error: null });
 
@@ -259,7 +265,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     try {
       const baseColumns = 'id, inbox_id, team_id, message_id, thread_id, subject, from_address, to_addresses, cc_addresses, bcc_addresses, direction, status, is_read, is_starred, is_deleted, is_archived, received_at, created_at, updated_at, imap_uid, mailbox_name, tags, snooze_until, last_activity_at, snippet';
 
-      let query = supabase
+      let query: any = supabase
         .from('emails')
         .select(
           labelId 
@@ -281,8 +287,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         query = query.eq('is_deleted', true);
       } else if (filterType === 'archived') {
         query = query.eq('is_archived', true);
-      } else {
+      } else if (!mailboxName) {
         query = query.eq('is_archived', false).eq('is_deleted', false);
+      }
+
+      if (mailboxName) {
+        query = query.eq('mailbox_name', mailboxName);
       }
       
       if (labelId) {
@@ -516,8 +526,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   addEmail: (email) => {
     set((state) => {
-      // Prevent duplicates from realtime INSERT events
       if (state.emails.some((e) => e.id === email.id)) {
+        return state;
+      }
+      const { activeMailbox } = useNavigationStore.getState();
+      if (activeMailbox && email.mailbox_name !== activeMailbox) {
         return state;
       }
       const emails = [email, ...state.emails].slice(0, MAX_EMAILS);

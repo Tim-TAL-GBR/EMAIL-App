@@ -24,7 +24,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   const pathname = usePathname();
   const { inboxes } = useInboxes();
   const { user, signOut } = useAuthStore();
-  const { activeContextType, activeContextId, activeFilter, setContext } = useNavigationStore();
+  const { activeContextType, activeContextId, activeFilter, activeMailbox, setContext } = useNavigationStore();
   
   const { labels, fetchLabels, createLabel } = useLabelStore();
   const { pinnedThreads, fetchPinnedThreads } = useEmailStore();
@@ -40,6 +40,9 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   const [expandedOrg, setExpandedOrg] = useState<string | null>(null);
   // Track which team filter dropdown is open
   const [openTeamFilter, setOpenTeamFilter] = useState<string | null>(null);
+
+  // IMAP folders per inbox (cached after first fetch)
+  const [imapFolders, setImapFolders] = useState<Record<string, { path: string; name: string; specialUse?: string }[]>>({});
 
   const privateInboxes = inboxes.filter(i => i.type === 'private');
 
@@ -79,6 +82,33 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
     };
     fetchCounts();
   }, [teams.length]);
+
+  // Fetch IMAP folders when an inbox is expanded
+  const fetchImapFolders = React.useCallback(async (inboxId: string) => {
+    if (imapFolders[inboxId]) return; // already cached
+    try {
+      const res = await fetch(`${API_URL}/api/inboxes/${inboxId}/folders`);
+      const json = await res.json();
+      if (json.folders) {
+        setImapFolders(prev => ({ ...prev, [inboxId]: json.folders }));
+      }
+    } catch (e) {
+      console.warn("Fehler beim Laden der IMAP-Ordner:", e);
+    }
+  }, [imapFolders]);
+
+  // Folders to show under "Weitere Ordner" (exclude special-use and known system folders)
+  const getCustomFolders = (inboxId: string) => {
+    const folders = imapFolders[inboxId] || [];
+    const specialPaths = new Set<string>(['inbox']);
+    const inbox = inboxes.find(i => i.id === inboxId);
+    if (inbox?.folder_archive) specialPaths.add(inbox.folder_archive.toLowerCase());
+    if (inbox?.folder_sent) specialPaths.add(inbox.folder_sent.toLowerCase());
+    if (inbox?.folder_trash) specialPaths.add(inbox.folder_trash.toLowerCase());
+    if (inbox?.folder_spam) specialPaths.add(inbox.folder_spam.toLowerCase());
+    return folders.filter(f => !f.path.toLowerCase().startsWith('[gmail]') && !specialPaths.has(f.path.toLowerCase()) && !f.specialUse);
+  };
+
 
   const handlePress = (type: ContextType, id: string, filter: FilterType) => {
     setContext(type, id, filter);
@@ -156,10 +186,12 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
             {privateInboxes.map(inbox => (
               <View key={inbox.id}>
                 <TouchableOpacity 
-                  style={[styles.accountItem, activeContextType === 'private_inbox' && activeContextId === inbox.id && !activeFilter && styles.filterItemActive]}
+                  style={[styles.accountItem, activeContextType === 'private_inbox' && activeContextId === inbox.id && !activeFilter && !activeMailbox && styles.filterItemActive]}
                   onPress={() => {
                     handlePress('private_inbox', inbox.id, 'needs_attention');
-                    setExpandedPrivateInbox(expandedPrivateInbox === inbox.id ? null : inbox.id);
+                    const willExpand = expandedPrivateInbox !== inbox.id;
+                    setExpandedPrivateInbox(willExpand ? inbox.id : null);
+                    if (willExpand) fetchImapFolders(inbox.id);
                   }}
                 >
                   <Feather 
@@ -180,6 +212,30 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
                     {renderFilterItem('private_inbox', inbox.id, 'sent', 'Gesendet')}
                     {renderFilterItem('private_inbox', inbox.id, 'archived', 'Archiviert')}
                     {renderFilterItem('private_inbox', inbox.id, 'trash', 'Papierkorb')}
+                    {getCustomFolders(inbox.id).length > 0 && (
+                      <>
+                        <Text style={styles.folderSectionLabel}>Weitere Ordner</Text>
+                        {getCustomFolders(inbox.id).map(folder => {
+                          const isMailboxActive = activeMailbox === folder.path;
+                          return (
+                            <TouchableOpacity
+                              key={folder.path}
+                              style={[styles.filterItem, isMailboxActive && styles.filterItemActive]}
+                              onPress={() => {
+                                setContext('private_inbox', inbox.id, 'all');
+                                useNavigationStore.getState().setMailbox(folder.path);
+                                if (!isDesktop) router.push('/inbox/list');
+                              }}
+                            >
+                              <Feather name="folder" size={14} color={isMailboxActive ? Colors.info : Colors.textTertiary} style={{ marginRight: Spacing.sm }} />
+                              <Text style={[styles.filterLabel, isMailboxActive && styles.filterLabelActive]} numberOfLines={1}>
+                                {folder.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </>
+                    )}
                   </View>
                 )}
               </View>
@@ -609,6 +665,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
     borderTopWidth: 1,
     borderTopColor: Colors.borderLight,
+  },
+  folderSectionLabel: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    paddingHorizontal: Spacing.sm,
+    marginTop: Spacing.xs,
+    marginBottom: 2,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   menuText: {
     fontSize: FontSize.sm,

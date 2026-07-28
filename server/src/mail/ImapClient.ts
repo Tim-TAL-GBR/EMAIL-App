@@ -28,6 +28,12 @@ export class ImapClient {
     trash: string | null;
   } = { inbox: "INBOX", sent: null, archive: null, trash: null };
 
+  private allFolders: { path: string; name: string; specialUse?: string }[] = [];
+
+  public getFolders() {
+    return this.allFolders;
+  }
+
   private createImapFlow() {
     return new ImapFlow({
       host: this.config.host,
@@ -58,6 +64,7 @@ export class ImapClient {
       
       // Discover folders
       const folders = await this.client.list();
+      this.allFolders = folders.map(f => ({ path: f.path, name: f.name, specialUse: f.specialUse }));
       this.folderMap = {
         inbox: "INBOX",
         sent: folders.find(f => f.specialUse === '\\Sent' || f.name.toLowerCase() === 'sent' || f.name.toLowerCase() === 'gesendet' || f.name.toLowerCase() === 'sent items')?.path || null,
@@ -65,6 +72,7 @@ export class ImapClient {
         trash: folders.find(f => f.specialUse === '\\Trash' || f.name.toLowerCase().includes('trash') || f.name.toLowerCase().includes('gelöscht') || f.name.toLowerCase().includes('papierkorb') || f.name.toLowerCase() === 'deleted items')?.path || null,
       };
       console.log(`[ImapClient] Folder mapping for ${this.config.user}:`, this.folderMap);
+      console.log(`[ImapClient] All folders for ${this.config.user}:`, this.allFolders.map(f => f.path));
 
       // Initial fetch for all folders
       await this.syncAllFolders();
@@ -117,10 +125,9 @@ export class ImapClient {
   }
 
   private async syncAllFolders(): Promise<void> {
-    if (this.folderMap.archive) await this.fetchFolder(this.folderMap.archive);
-    if (this.folderMap.trash) await this.fetchFolder(this.folderMap.trash);
-    if (this.folderMap.sent) await this.fetchFolder(this.folderMap.sent);
-    await this.fetchFolder(this.folderMap.inbox);
+    for (const f of this.allFolders) {
+      await this.fetchFolder(f.path);
+    }
   }
 
   private async fetchFolder(mailboxPath: string): Promise<void> {
@@ -140,10 +147,7 @@ export class ImapClient {
       try {
         const supabase = getSupabaseAdmin();
         
-        let dbMailboxName = "INBOX";
-        if (mailboxPath === this.folderMap.archive) dbMailboxName = "Archive";
-        else if (mailboxPath === this.folderMap.trash) dbMailboxName = "Trash";
-        else if (mailboxPath === this.folderMap.sent) dbMailboxName = "Sent";
+        const dbMailboxName = this.mailboxNameForPath(mailboxPath);
 
         const { data: lastEmail } = await supabase.from('emails')
           .select('imap_uid')
@@ -206,6 +210,16 @@ export class ImapClient {
     } catch (error) {
       console.error(`[ImapClient] Error fetching messages for ${this.config.user}:`, error);
     }
+  }
+
+  private mailboxNameForPath(path: string): string {
+    if (path === this.folderMap.inbox) return "INBOX";
+    if (this.folderMap.sent && path === this.folderMap.sent) return "Sent";
+    if (this.folderMap.archive && path === this.folderMap.archive) return "Archive";
+    if (this.folderMap.trash && path === this.folderMap.trash) return "Trash";
+    // Gmail "All Mail" / "Gmail" variant handling
+    if (path.toLowerCase().includes("all mail") || path.toLowerCase() === "[gmail]/all mail") return "Archive";
+    return path; // Custom folders use the actual path
   }
 
   private async processMessage(source: Buffer, uid: number, isSeenOnServer: boolean, mailboxPath: string): Promise<void> {
@@ -293,7 +307,7 @@ export class ImapClient {
         threadId: null, // Worker will calculate if null
         isRead: isSeenOnServer,
         attachments: processedAttachments,
-        mailboxName: mailboxPath
+        mailboxName: this.mailboxNameForPath(mailboxPath)
       });
 
       console.log(`[ImapClient] Queued email for processing: ${subject}`);
