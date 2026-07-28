@@ -424,7 +424,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
+    backgroundColor: '#F3F4F6',
   },
   threadContainer: {
     paddingBottom: Spacing.sm,
@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: Spacing.md,
-    backgroundColor: '#FFF',
+    backgroundColor: '#F3F4F6',
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
   },

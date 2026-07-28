@@ -170,7 +170,7 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#F3F4F6',
   },
   center: {
     justifyContent: 'center',
