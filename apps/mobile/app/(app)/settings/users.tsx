@@ -81,6 +81,14 @@ export default function UsersSettingsScreen() {
   // Role dropdown state
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
 
+  // Unassigned users state
+  const [unassignedUsers, setUnassignedUsers] = useState<any[]>([]);
+  const [showUnassigned, setShowUnassigned] = useState(false);
+  const [loadingUnassigned, setLoadingUnassigned] = useState(false);
+  const [showAddToTeamModal, setShowAddToTeamModal] = useState(false);
+  const [assigningUser, setAssigningUser] = useState<any>(null);
+  const [assignTargetTeamId, setAssignTargetTeamId] = useState<string | null>(null);
+
   const selectedTeam = teams.find(t => t.id === selectedTeamId);
   const canManage = selectedTeam && ['owner', 'admin'].includes(selectedTeam.myRole);
 
@@ -94,6 +102,37 @@ export default function UsersSettingsScreen() {
 
   useEffect(() => { loadTeams(); }, []);
   useEffect(() => { if (selectedTeamId) loadMembers(selectedTeamId); }, [selectedTeamId]);
+
+  const fetchUnassignedUsers = async () => {
+    setLoadingUnassigned(true);
+    try {
+      const data = await apiRequest('/api/teams/unassigned-users');
+      setUnassignedUsers(data);
+    } catch (e: any) {
+      console.warn('Error fetching unassigned users:', e.message);
+    } finally {
+      setLoadingUnassigned(false);
+    }
+  };
+
+  const handleAssignToTeam = async () => {
+    if (!assigningUser || !assignTargetTeamId) return;
+    try {
+      await apiRequest(`/api/teams/${assignTargetTeamId}/members/create`, 'POST', {
+        email: assigningUser.email,
+        password: 'TeamMail2026!',
+        role: 'member',
+      });
+      Alert.alert('Erfolg', `${assigningUser.display_name || assigningUser.email} wurde hinzugefügt.`);
+      setShowAddToTeamModal(false);
+      setAssigningUser(null);
+      setAssignTargetTeamId(null);
+      fetchUnassignedUsers();
+      if (selectedTeamId) loadMembers(selectedTeamId);
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    }
+  };
 
   const loadTeams = async () => {
     try {
@@ -250,6 +289,48 @@ export default function UsersSettingsScreen() {
         </View>
       </Modal>
 
+      {/* Add to Team Modal */}
+      <Modal visible={showAddToTeamModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Zu Organisation hinzufügen</Text>
+              <TouchableOpacity onPress={() => { setShowAddToTeamModal(false); setAssigningUser(null); }}>
+                <Text style={styles.closeIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalBody}>
+              <Text style={styles.modalLabel}>Benutzer</Text>
+              <Text style={[styles.tableCellText, { marginBottom: Spacing.md }]}>{assigningUser?.display_name || assigningUser?.email || ''}</Text>
+              <Text style={[styles.modalLabel, { marginTop: Spacing.md }]}>Organisation wählen</Text>
+              {teams.map(team => (
+                <TouchableOpacity
+                  key={team.id}
+                  style={[styles.roleOption, assignTargetTeamId === team.id && styles.roleOptionActive, { marginBottom: Spacing.sm }]}
+                  onPress={() => setAssignTargetTeamId(team.id)}
+                >
+                  <Text style={[styles.roleOptionText, assignTargetTeamId === team.id && styles.roleOptionTextActive]}>
+                    {team.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.btnSecondary} onPress={() => { setShowAddToTeamModal(false); setAssigningUser(null); }}>
+                <Text style={styles.btnSecondaryText}>Abbrechen</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnPrimary, !assignTargetTeamId && { opacity: 0.5 }]}
+                onPress={handleAssignToTeam}
+                disabled={!assignTargetTeamId}
+              >
+                <Text style={styles.btnPrimaryText}>Hinzufügen</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.sidebarContent}>
@@ -266,25 +347,45 @@ export default function UsersSettingsScreen() {
           <ScrollView>
             {loadingTeams ? (
               <ActivityIndicator style={{ marginTop: Spacing.xl }} />
-            ) : teams.map(team => (
-              <TouchableOpacity
-                key={team.id}
-                style={selectedTeamId === team.id ? styles.sidebarItemActive : styles.sidebarItem}
-                onPress={() => setSelectedTeamId(team.id)}
-              >
-                <View style={[styles.orgAvatar, { backgroundColor: getAvatarColor(team.id) }]}>
-                  <Text style={styles.orgAvatarText}>{team.name.substring(0, 2).toUpperCase()}</Text>
-                </View>
-                <View>
-                  <Text style={selectedTeamId === team.id ? styles.sidebarItemTitleActive : styles.sidebarItemTitle}>
-                    {team.name}
-                  </Text>
-                  <Text style={selectedTeamId === team.id ? styles.sidebarItemSubtitleActive : styles.sidebarItemSubtitle}>
-                    {ROLE_LABELS[team.myRole] || team.myRole}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+            ) : (
+              <>
+                {teams.map(team => (
+                  <TouchableOpacity
+                    key={team.id}
+                    style={selectedTeamId === team.id && !showUnassigned ? styles.sidebarItemActive : styles.sidebarItem}
+                    onPress={() => { setSelectedTeamId(team.id); setShowUnassigned(false); }}
+                  >
+                    <View style={[styles.orgAvatar, { backgroundColor: getAvatarColor(team.id) }]}>
+                      <Text style={styles.orgAvatarText}>{team.name.substring(0, 2).toUpperCase()}</Text>
+                    </View>
+                    <View>
+                      <Text style={selectedTeamId === team.id && !showUnassigned ? styles.sidebarItemTitleActive : styles.sidebarItemTitle}>
+                        {team.name}
+                      </Text>
+                      <Text style={selectedTeamId === team.id && !showUnassigned ? styles.sidebarItemSubtitleActive : styles.sidebarItemSubtitle}>
+                        {ROLE_LABELS[team.myRole] || team.myRole}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={showUnassigned ? styles.sidebarItemActive : styles.sidebarItem}
+                  onPress={() => { setShowUnassigned(true); fetchUnassignedUsers(); }}
+                >
+                  <View style={[styles.orgAvatar, { backgroundColor: '#9CA3AF' }]}>
+                    <Text style={styles.orgAvatarText}>?</Text>
+                  </View>
+                  <View>
+                    <Text style={showUnassigned ? styles.sidebarItemTitleActive : styles.sidebarItemTitle}>
+                      Ohne Organisation
+                    </Text>
+                    <Text style={showUnassigned ? styles.sidebarItemSubtitleActive : styles.sidebarItemSubtitle}>
+                      {unassignedUsers.length} Nutzer
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </>
+            )}
           </ScrollView>
         </View>
         {canManage && (
@@ -296,7 +397,52 @@ export default function UsersSettingsScreen() {
 
       {/* Main Content */}
       <View style={styles.main}>
-        {selectedTeam ? (
+        {showUnassigned ? (
+          <>
+            <View style={styles.mainHeader}>
+              <View style={styles.headerTitleRow}>
+                <View style={[styles.headerAvatar, { backgroundColor: '#9CA3AF' }]}>
+                  <Text style={styles.headerAvatarText}>?</Text>
+                </View>
+                <View>
+                  <Text style={styles.mainHeaderTitle}>Ohne Organisation</Text>
+                  <Text style={styles.mainHeaderSubtitle}>Benutzer ohne Team-Zugehörigkeit</Text>
+                </View>
+              </View>
+            </View>
+            <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeaderText, { flex: 2 }]}>Name</Text>
+                <Text style={[styles.tableHeaderText, { flex: 2 }]}>E-Mail</Text>
+                <Text style={[styles.tableHeaderText, { width: 120 }]}></Text>
+              </View>
+              {loadingUnassigned ? (
+                <ActivityIndicator style={{ marginTop: Spacing.xl }} />
+              ) : unassignedUsers.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>Alle Benutzer sind einer Organisation zugeordnet.</Text>
+                </View>
+              ) : unassignedUsers.map(user => (
+                <View key={user.id} style={styles.tableRow}>
+                  <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(user.id) }]}>
+                      <Text style={styles.userAvatarText}>{getInitials(user.display_name, user.email)}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.tableCellTextBold}>{user.display_name || 'Unbekannt'}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.tableCellSubtitle, { flex: 2 }]}>{user.email}</Text>
+                  <View style={{ width: 120, alignItems: 'flex-end' }}>
+                    <TouchableOpacity onPress={() => { setAssigningUser(user); setShowAddToTeamModal(true); }}>
+                      <Text style={styles.roleChip}>Hinzufügen →</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </>
+        ) : selectedTeam ? (
           <>
             <View style={styles.mainHeader}>
               <View style={styles.headerTitleRow}>

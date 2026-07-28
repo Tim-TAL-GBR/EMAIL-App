@@ -516,3 +516,32 @@ teamRouter.delete("/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/teams/unassigned-users – Users with no team membership
+// ---------------------------------------------------------------------------
+teamRouter.get("/unassigned-users", async (req, res) => {
+  try {
+    const supabase = getSupabaseAdmin();
+
+    const { data: allProfiles, error: profileErr } = await supabase
+      .from("profiles")
+      .select("id, email, display_name, avatar_url");
+
+    if (profileErr) {
+      res.status(500).json({ error: profileErr.message });
+      return;
+    }
+
+    const { data: members } = await supabase
+      .from("team_members")
+      .select("user_id");
+
+    const memberUserIds = new Set((members || []).map((m: any) => m.user_id));
+    const unassigned = (allProfiles || []).filter((p: any) => !memberUserIds.has(p.id));
+
+    res.json(unassigned);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
