@@ -16,6 +16,7 @@ interface SendEmailParams {
   inReplyTo?: string;
   references?: string | string[];
   attachments?: any[];
+  fromAddress?: string;
 }
 
 export class SmtpClient {
@@ -68,9 +69,12 @@ export class SmtpClient {
       }
     }
 
-    // 3. Send email
+    // 3. Determine sender address (override from aliases if provided)
+    const senderAddress = params.fromAddress || inbox.email_address;
+
+    // 4. Send email
     const mailOptions: any = {
-      from: inbox.email_address,
+      from: senderAddress,
       to: params.to.join(", "),
       cc: params.cc?.join(", "),
       bcc: params.bcc?.join(", "),
@@ -133,7 +137,7 @@ export class SmtpClient {
       message_id: cleanMessageId,
       thread_id: threadId,
       subject: params.subject,
-      from_address: inbox.email_address,
+      from_address: senderAddress,
       to_addresses: params.to,
       cc_addresses: params.cc || [],
       bcc_addresses: params.bcc || [],

@@ -40,6 +40,9 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const { inboxes } = useInboxes();
   const { signatures } = useSignatures();
   const [userSigSettings, setUserSigSettings] = useState<any>(null);
+  const [senderAddress, setSenderAddress] = useState('');
+  const [senderAliases, setSenderAliases] = useState<{ email_address: string; name?: string }[]>([]);
+  const [showSenderPicker, setShowSenderPicker] = useState(false);
   
   // Use provided inboxId, or fallback to first available inbox if opened from Global Inbox
   const activeInboxId = inboxId || (inboxes && inboxes.length > 0 ? inboxes[0].id : '');
@@ -57,6 +60,24 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         .eq('user_id', user.id)
         .maybeSingle();
       setUserSigSettings(data);
+    })();
+  }, [activeInboxId, visible]);
+
+  // Fetch inbox + aliases to populate sender picker
+  useEffect(() => {
+    if (!activeInboxId || !visible) return;
+    (async () => {
+      const activeInbox = inboxes.find(i => i.id === activeInboxId);
+      const inboxEmail = activeInbox?.email_address || '';
+      const { data } = await supabase
+        .from('inbox_aliases')
+        .select('email_address, name')
+        .eq('inbox_id', activeInboxId);
+      const aliases = data || [];
+      setSenderAliases([{ email_address: inboxEmail, name: 'Standard' }, ...aliases.filter(a => a.email_address !== inboxEmail)]);
+      if (!senderAddress || !aliases.some(a => a.email_address === senderAddress) && senderAddress !== inboxEmail) {
+        setSenderAddress(inboxEmail);
+      }
     })();
   }, [activeInboxId, visible]);
 
@@ -250,7 +271,8 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         bodyText: body,
         inReplyTo: mode === 'reply' ? sourceEmail?.message_id : undefined,
         references: mode === 'reply' ? sourceEmail?.message_id : undefined,
-        attachments, // Pass to backend
+        attachments,
+        fromAddress: senderAddress || undefined,
       };
 
       const apiUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
@@ -279,6 +301,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   };
 
   const composerContent = (
+    <>
     <SafeAreaView style={[styles.container, isDesktop && styles.desktopContainer]}>
       <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -297,6 +320,20 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         </View>
 
         <View style={styles.form}>
+          <View style={styles.inputRow}>
+            <Text style={styles.label}>Von:</Text>
+            <TouchableOpacity
+              style={[styles.input, styles.senderPicker]}
+              onPress={() => setShowSenderPicker(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.senderText} numberOfLines={1}>
+                {senderAddress || 'Laden...'}
+              </Text>
+              <Feather name="chevron-down" size={16} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.inputRow}>
             <Text style={styles.label}>An:</Text>
             <TextInput 
@@ -369,6 +406,31 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           </View>
         </View>
     </SafeAreaView>
+
+    <Modal visible={showSenderPicker} transparent animationType="fade">
+      <TouchableOpacity
+        style={styles.pickerOverlay}
+        activeOpacity={1}
+        onPress={() => setShowSenderPicker(false)}
+      >
+        <View style={styles.pickerContainer}>
+          <Text style={styles.pickerTitle}>Absender wählen</Text>
+          {senderAliases.map((alias, index) => (
+            <TouchableOpacity
+              key={alias.email_address}
+              style={[styles.pickerOption, senderAddress === alias.email_address && styles.pickerOptionActive]}
+              onPress={() => { setSenderAddress(alias.email_address); setShowSenderPicker(false); }}
+            >
+              <Text style={[styles.pickerOptionText, senderAddress === alias.email_address && styles.pickerOptionTextActive]} numberOfLines={1}>
+                {alias.name && alias.name !== 'Standard' ? `${alias.name} <${alias.email_address}>` : alias.email_address}
+              </Text>
+              {senderAddress === alias.email_address && <Feather name="check" size={16} color={Colors.primary} />}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </TouchableOpacity>
+    </Modal>
+    </>
   );
 
   const macHeader = (
@@ -559,5 +621,60 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '600',
     color: Colors.textSecondary,
-  }
+  },
+  senderPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  senderText: {
+    fontSize: FontSize.md,
+    color: Colors.text,
+    flex: 1,
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerContainer: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '60%',
+  },
+  pickerTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+  },
+  pickerOptionActive: {
+    backgroundColor: Colors.primaryLight,
+  },
+  pickerOptionText: {
+    fontSize: FontSize.md,
+    color: Colors.text,
+    flex: 1,
+  },
+  pickerOptionTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeight.medium,
+  },
 });
