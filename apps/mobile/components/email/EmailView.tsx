@@ -307,8 +307,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       />
       </View>
       
-      {Platform.OS === 'web' && showShopifyPanel && selectedThread?.latestEmail && (
-        <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
+      {Platform.OS === 'web' && selectedThread?.latestEmail && (
+        <View style={{ width: showShopifyPanel ? 320 : 0, overflow: 'hidden', borderLeftWidth: showShopifyPanel ? 1 : 0, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: showShopifyPanel ? Spacing.md : 0 }}>
           <ShopifyCustomerCard 
             email={selectedThread.latestEmail.from_address} 
             teamId={selectedThread.latestEmail.team_id}
