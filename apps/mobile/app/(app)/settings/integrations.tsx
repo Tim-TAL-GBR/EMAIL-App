@@ -1,79 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { useTeams } from '../../../hooks/useTeams';
 
 const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
 
-const CATEGORIES = [
-  'Alle',
-  'KI',
-  'Automatisierung',
-  'Cloud-Speicher',
-  'Kommunikation',
-  'Kontakte',
-  'CRM',
-  'Entwickler',
-  'E-Commerce',
-  'Grammatik & Rechtschreibung',
-  'Interne Tools',
-  'MCP',
-  'Meetings',
-  'No-Code',
-  'Zahlungen',
-  'Produktivität',
-  'Projektmanagement',
-  'Soziales & Spaß',
-  'Video',
-  'Sprache'
-];
-
 const INTEGRATIONS = [
-  { name: 'Aircall', color: '#00B388' },
-  { name: 'Asana', color: '#F06A6A' },
-  { name: 'Attio MCP', color: '#000000' },
-  { name: 'ChargeDesk', color: '#3A8EE6' },
-  { name: 'Claude', color: '#D97757' },
-  { name: 'ClickUp', color: '#7B68EE' },
-  { name: 'ClickUp MCP', color: '#7B68EE' },
-  { name: 'Close', color: '#36B37E' },
-  { name: '{ } Custom', color: '#555555' },
-  { name: 'Custom MCP', color: '#555555' },
-  { name: 'Daylite', color: '#FF9900' },
-  { name: 'Dialpad', color: '#A020F0' },
-  { name: 'Dropbox', color: '#0061FF' },
-  { name: 'FullContact Enrich', color: '#1B95E0' },
-  { name: 'Gemini', color: '#1A73E8' },
-  { name: 'Giphy', color: '#000000' },
-  { name: 'GitHub', color: '#24292E' },
-  { name: 'Google Drive', color: '#1DA462' },
-  { name: 'HubSpot', color: '#FF7A59' },
-  { name: 'Integrately', color: '#FF9900' },
-  { name: 'Linear MCP', color: '#5E6AD2' },
-  { name: 'Make', color: '#A020F0' },
-  { name: 'Notion MCP', color: '#000000' },
-  { name: 'OpenAI', color: '#10A37F' },
-  { name: 'Pipedrive', color: '#262626' },
-  { name: 'Relay', color: '#0066FF' },
-  { name: 'Retool', color: '#3D5AFE' },
-  { name: 'Salesforce', color: '#00A1E0' },
   { name: 'Shopify', color: '#96BF48' },
-  { name: 'Stripe MCP', color: '#635BFF' },
-  { name: 'Synology', color: '#4B92C2' },
-  { name: 'Todoist', color: '#E44332' },
-  { name: 'Todoist MCP', color: '#E44332' },
-  { name: 'Trello', color: '#0052CC' },
-  { name: 'Video Chat', color: '#2D8CFF' },
-  { name: 'Zapier', color: '#FF4A00' },
-  { name: 'Zoom', color: '#2D8CFF' }
 ];
 
 export default function IntegrationsSettingsScreen() {
   const { teams } = useTeams();
   const [modalVisible, setModalVisible] = useState(false);
-  const [activeCategory, setActiveCategory] = useState('Alle');
-  const [searchQuery, setSearchQuery] = useState('');
   const [activeIntegrations, setActiveIntegrations] = useState<any[]>([]);
   const [shopStatus, setShopStatus] = useState<{ configured: boolean; shops: { shop_domain: string; created_at: string }[] } | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -190,62 +129,31 @@ export default function IntegrationsSettingsScreen() {
 
   const renderModal = () => (
     <View style={styles.modalOverlay}>
-      <View style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <View style={styles.modalHeaderLeft}>
-            <Text style={styles.modalHeaderTitle}>Integrationen</Text>
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
-              <Text style={styles.closeIcon}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.searchWrapper}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Integrationen suchen..."
-              placeholderTextColor={Colors.textTertiary}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
+      <View style={styles.simpleModalContainer}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg }}>
+          <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold', color: Colors.text }}>Integration hinzufügen</Text>
+          <TouchableOpacity onPress={() => setModalVisible(false)}>
+            <Text style={{ fontSize: FontSize.lg, color: Colors.textSecondary, fontWeight: 'bold' }}>✕</Text>
+          </TouchableOpacity>
         </View>
-
-        <View style={styles.modalBody}>
-          <ScrollView style={styles.modalSidebar}>
-            {CATEGORIES.map(cat => (
-              <TouchableOpacity
-                key={cat}
-                style={[styles.categoryItem, activeCategory === cat && styles.categoryItemActive]}
-                onPress={() => setActiveCategory(cat)}
-              >
-                <Text style={[styles.categoryText, activeCategory === cat && styles.categoryTextActive]}>
-                  {cat}
+        {INTEGRATIONS.map(item => {
+          const isConnected = activeIntegrations.some(i => i.name === item.name);
+          return (
+            <TouchableOpacity
+              key={item.name}
+              style={[styles.integrationItem, isConnected && { backgroundColor: Colors.surfaceHover }]}
+              onPress={() => handleToggleIntegration(item)}
+            >
+              <View style={[styles.integrationIcon, { backgroundColor: item.color }]} />
+              <Text style={styles.integrationName}>{item.name}</Text>
+              {isConnected && (
+                <Text style={{ marginLeft: 'auto', color: Colors.info, fontFamily: FontFamily, fontSize: FontSize.sm }}>
+                  Verbunden
                 </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          <ScrollView style={styles.modalContent}>
-            {INTEGRATIONS.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase())).map(item => {
-              const isConnected = activeIntegrations.some(i => i.name === item.name);
-              return (
-                <TouchableOpacity
-                  key={item.name}
-                  style={[styles.integrationItem, isConnected && { backgroundColor: Colors.surfaceHover }]}
-                  onPress={() => handleToggleIntegration(item)}
-                >
-                  <View style={[styles.integrationIcon, { backgroundColor: item.color }]} />
-                  <Text style={styles.integrationName}>{item.name}</Text>
-                  {isConnected && (
-                    <Text style={{ marginLeft: 'auto', color: Colors.info, fontFamily: FontFamily, fontSize: FontSize.sm }}>
-                      Verbunden
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -419,98 +327,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalContainer: {
-    width: 800,
-    height: '80%',
+  simpleModalContainer: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
-    overflow: 'hidden',
+    padding: Spacing.xl,
+    width: 400,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.2,
     shadowRadius: 20,
     elevation: 10,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  modalHeaderLeft: {
-    width: 200,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: Spacing.md,
-    borderRightWidth: 1,
-    borderRightColor: Colors.border,
-    backgroundColor: Colors.surfaceHover,
-  },
-  modalHeaderTitle: {
-    fontFamily: FontFamily,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.bold,
-    color: Colors.text,
-  },
-  closeIcon: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    fontWeight: 'bold',
-  },
-  searchWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    backgroundColor: '#FFF',
-  },
-  searchIcon: {
-    fontSize: 14,
-    color: Colors.textTertiary,
-    marginRight: Spacing.sm,
-  },
-  searchInput: {
-    flex: 1,
-    height: '100%',
-    fontFamily: FontFamily,
-    fontSize: FontSize.sm,
-    color: Colors.text,
-  },
-  modalBody: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  modalSidebar: {
-    width: 200,
-    backgroundColor: Colors.surfaceHover,
-    borderRightWidth: 1,
-    borderRightColor: Colors.border,
-  },
-  categoryItem: {
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    marginHorizontal: Spacing.xs,
-    marginTop: Spacing.xs,
-    borderRadius: 6,
-  },
-  categoryItemActive: {
-    backgroundColor: Colors.info,
-  },
-  categoryText: {
-    fontFamily: FontFamily,
-    fontSize: FontSize.sm,
-    color: Colors.text,
-  },
-  categoryTextActive: {
-    color: '#FFF',
-    fontWeight: FontWeight.bold,
-  },
-  modalContent: {
-    flex: 1,
-    backgroundColor: '#FFF',
-    padding: Spacing.md,
   },
   integrationItem: {
     flexDirection: 'row',
