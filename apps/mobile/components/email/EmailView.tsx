@@ -103,6 +103,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const [ruleComposerVisible, setRuleComposerVisible] = useState(false);
   const [ruleInitialCondition, setRuleInitialCondition] = useState<RuleCondition>({ field: 'from', operator: 'equals', value: '' });
   const [taskComposerVisible, setTaskComposerVisible] = useState(false);
+  const [showShopifyPanel, setShowShopifyPanel] = useState(false);
 
   const handleStatusChange = async (id: string, status: 'open' | 'in_progress' | 'done') => {
     await updateEmailStatus(id, status);
@@ -276,6 +277,13 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
                   <Feather name="trash-2" size={16} color={Colors.textSecondary} />
                 </TouchableOpacity>
                 
+                <TouchableOpacity
+                  style={[styles.iconButton, showShopifyPanel && { backgroundColor: '#E8F5E9', borderRadius: 4 }]}
+                  onPress={() => setShowShopifyPanel(!showShopifyPanel)}
+                >
+                  <Feather name="shopping-bag" size={16} color={showShopifyPanel ? '#96BF48' : Colors.textSecondary} />
+                </TouchableOpacity>
+                
                 <View ref={moreRef} collapsable={false}>
                   <TouchableOpacity style={styles.iconButton} onPress={openMoreMenu}>
                     <Feather name="more-horizontal" size={16} color={Colors.textSecondary} />
@@ -292,7 +300,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       />
       </View>
       
-      {Platform.OS === 'web' && selectedThread?.latestEmail && (
+      {Platform.OS === 'web' && showShopifyPanel && selectedThread?.latestEmail && (
         <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
           <ShopifyCustomerCard 
             email={selectedThread.latestEmail.from_address} 

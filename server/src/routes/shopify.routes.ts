@@ -398,6 +398,8 @@ shopifyRouter.get("/order/detail", requireAuth, async (req, res) => {
               variantTitle
               sku
               quantity
+              currentQuantity
+              refundableQuantity
               originalUnitPriceSet { shopMoney { amount currencyCode } }
               discountedUnitPriceSet { shopMoney { amount currencyCode } }
               totalDiscountSet { shopMoney { amount currencyCode } }
@@ -413,6 +415,20 @@ shopifyRouter.get("/order/detail", requireAuth, async (req, res) => {
                 sku
                 price
                 compareAtPrice
+              }
+            }
+          }
+          refunds {
+            id
+            createdAt
+            totalRefundedSet { shopMoney { amount currencyCode } }
+            refundLineItems {
+              quantity
+              subtotalSet { shopMoney { amount currencyCode } }
+              lineItem {
+                id
+                title
+                variantTitle
               }
             }
           }

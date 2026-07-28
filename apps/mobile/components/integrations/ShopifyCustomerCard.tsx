@@ -292,8 +292,11 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber }: Shop
         {/* Line Items */}
         <View style={styles.detailSection}>
           <Text style={styles.detailSectionTitle}>Produkte ({lineItems.length})</Text>
-          {lineItems.map((item: any, idx: number) => (
-            <View key={item.id || idx} style={styles.lineItem}>
+          {lineItems.map((item: any, idx: number) => {
+            const removedQty = item.quantity - (item.currentQuantity ?? item.quantity);
+            const isPartiallyRemoved = removedQty > 0;
+            return (
+            <View key={item.id || idx} style={[styles.lineItem, isPartiallyRemoved && styles.lineItemRemoved]}>
               <View style={styles.lineItemRow}>
                 {item.image?.url ? (
                   <Image source={{ uri: item.image.url }} style={styles.lineItemImage} />
@@ -303,19 +306,30 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber }: Shop
                   </View>
                 )}
                 <View style={styles.lineItemInfo}>
-                  <Text style={styles.lineItemTitle} numberOfLines={2}>{item.title}{item.variantTitle ? ` — ${item.variantTitle}` : ''}</Text>
+                  <Text style={[styles.lineItemTitle, isPartiallyRemoved && styles.lineItemTitleRemoved]} numberOfLines={2}>{item.title}{item.variantTitle ? ` — ${item.variantTitle}` : ''}</Text>
                   {item.sku && <Text style={styles.lineItemSku}>SKU: {item.sku}</Text>}
-                  <Text style={styles.lineItemQty}>Menge: {item.quantity}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={styles.lineItemQty}>Menge: {item.currentQuantity ?? item.quantity}</Text>
+                    {isPartiallyRemoved && (
+                      <View style={styles.removedBadge}>
+                        <Text style={styles.removedBadgeText}>urspr. {item.quantity}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
                 <View style={styles.lineItemPriceCol}>
                   <Text style={styles.lineItemPrice}>{formatMoney(item.originalUnitPriceSet)}</Text>
                   {item.totalDiscountSet?.shopMoney?.amount !== '0.0' && (
                     <Text style={styles.lineItemDiscount}>-{formatMoney(item.totalDiscountSet)}</Text>
                   )}
+                  {isPartiallyRemoved && (
+                    <Text style={styles.removedQtyText}>-{removedQty}x</Text>
+                  )}
                 </View>
               </View>
             </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* Financials */}
@@ -361,6 +375,30 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber }: Shop
             <Text style={styles.detailSectionTitle}>Rabattcodes</Text>
             {order.discountCodes.map((code: string, idx: number) => (
               <Text key={idx} style={styles.discountCode}>{code}</Text>
+            ))}
+          </View>
+        )}
+
+        {/* Refunds / Returns */}
+        {order.refunds?.length > 0 && (
+          <View style={styles.detailSection}>
+            <Text style={styles.detailSectionTitle}>Rückgaben ({order.refunds.length})</Text>
+            {order.refunds.map((refund: any, idx: number) => (
+              <View key={refund.id || idx} style={styles.refundBlock}>
+                <View style={styles.refundHeader}>
+                  <Text style={styles.refundDate}>{formatDate(refund.createdAt)}</Text>
+                  <Text style={styles.refundTotal}>-{formatMoney(refund.totalRefundedSet)}</Text>
+                </View>
+                {refund.refundLineItems?.map((rli: any, rliIdx: number) => (
+                  <View key={rliIdx} style={styles.refundItem}>
+                    <Text style={styles.refundItemTitle} numberOfLines={1}>
+                      {rli.lineItem?.title}{rli.lineItem?.variantTitle ? ` — ${rli.lineItem.variantTitle}` : ''}
+                    </Text>
+                    <Text style={styles.refundItemQty}>x{rli.quantity}</Text>
+                    <Text style={styles.refundItemAmount}>{formatMoney(rli.subtotalSet)}</Text>
+                  </View>
+                ))}
+              </View>
             ))}
           </View>
         )}
@@ -914,5 +952,82 @@ const styles = StyleSheet.create({
     color: Colors.text,
     backgroundColor: Colors.surface,
     marginBottom: 2,
+  },
+  lineItemRemoved: {
+    opacity: 0.65,
+    borderLeftWidth: 2,
+    borderLeftColor: '#C62828',
+    paddingLeft: Spacing.xs,
+  },
+  lineItemTitleRemoved: {
+    textDecorationLine: 'line-through',
+    color: Colors.textSecondary,
+  },
+  removedBadge: {
+    backgroundColor: '#FFEBEE',
+    borderRadius: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  removedBadgeText: {
+    fontSize: 8,
+    color: '#C62828',
+    fontFamily: FontFamily,
+    fontWeight: FontWeight.semibold,
+  },
+  removedQtyText: {
+    fontSize: 9,
+    fontFamily: FontFamily,
+    color: '#C62828',
+    fontWeight: FontWeight.semibold,
+  },
+  refundBlock: {
+    backgroundColor: '#EBF5FB',
+    borderRadius: 4,
+    padding: Spacing.xs,
+    marginBottom: Spacing.xs,
+    borderWidth: 1,
+    borderColor: '#B3D4FC',
+  },
+  refundHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  refundDate: {
+    fontSize: 10,
+    fontFamily: FontFamily,
+    fontWeight: FontWeight.semibold,
+    color: '#1565C0',
+  },
+  refundTotal: {
+    fontSize: 10,
+    fontFamily: FontFamily,
+    fontWeight: FontWeight.bold,
+    color: '#1565C0',
+  },
+  refundItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 1,
+  },
+  refundItemTitle: {
+    flex: 1,
+    fontSize: 9,
+    fontFamily: FontFamily,
+    color: Colors.text,
+  },
+  refundItemQty: {
+    fontSize: 9,
+    fontFamily: FontFamily,
+    color: '#1565C0',
+    fontWeight: FontWeight.semibold,
+  },
+  refundItemAmount: {
+    fontSize: 9,
+    fontFamily: FontFamily,
+    color: '#1565C0',
   },
 });
