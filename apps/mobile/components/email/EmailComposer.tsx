@@ -63,16 +63,10 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' || Platform.OS === 'macos' || width > 768;
 
-  // Kill browser autofill on web
+  // Prevent browser autofill on web (readOnly on mount, removed on focus)
+  const [autofillDisabled, setAutofillDisabled] = useState(true);
   useEffect(() => {
-    if (!visible || Platform.OS !== 'web') return;
-    const id = setTimeout(() => {
-      document.querySelectorAll('input[type="email"]').forEach((el: any) => {
-        el.setAttribute('autocomplete', 'off');
-        el.setAttribute('name', 'email_' + Math.random().toString(36).slice(2, 8));
-      });
-    }, 50);
-    return () => clearTimeout(id);
+    if (visible) setAutofillDisabled(true);
   }, [visible]);
 
   const { draft, saveDraft, deleteDraft, isLoading: draftLoading } = useDraft(
@@ -521,12 +515,13 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               style={[styles.input, invalidTo.length > 0 && { color: Colors.error }]}
               value={to}
               onChangeText={onToChange}
-              onFocus={() => { setAutocompleteField('to'); setAutocompleteQuery(getCurrentWord(to)); }}
+              onFocus={() => { setAutofillDisabled(false); setAutocompleteField('to'); setAutocompleteQuery(getCurrentWord(to)); }}
               onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
               placeholder="E-Mail-Adressen"
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect={false}
+              editable={!(autofillDisabled && Platform.OS === 'web')}
             />
             {invalidTo.length > 0 && (
               <Text style={styles.validationHint}>{invalidTo.join(', ')}</Text>
@@ -551,12 +546,13 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               style={[styles.input, invalidCc.length > 0 && { color: Colors.error }]}
               value={cc}
               onChangeText={onCcChange}
-              onFocus={() => { setAutocompleteField('cc'); setAutocompleteQuery(getCurrentWord(cc)); }}
+              onFocus={() => { setAutofillDisabled(false); setAutocompleteField('cc'); setAutocompleteQuery(getCurrentWord(cc)); }}
               onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
               placeholder="E-Mail-Adressen"
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect={false}
+              editable={!(autofillDisabled && Platform.OS === 'web')}
             />
             {invalidCc.length > 0 && (
               <Text style={styles.validationHint}>{invalidCc.join(', ')}</Text>
@@ -585,12 +581,13 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
                 style={[styles.input, invalidBcc.length > 0 && { color: Colors.error }]}
                 value={bcc}
                 onChangeText={onBccChange}
-                onFocus={() => { setAutocompleteField('bcc'); setAutocompleteQuery(getCurrentWord(bcc)); }}
+                onFocus={() => { setAutofillDisabled(false); setAutocompleteField('bcc'); setAutocompleteQuery(getCurrentWord(bcc)); }}
                 onBlur={() => setTimeout(() => setAutocompleteField(null), 200)}
                 placeholder="E-Mail-Adressen"
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect={false}
+                editable={!(autofillDisabled && Platform.OS === 'web')}
               />
               {invalidBcc.length > 0 && (
                 <Text style={styles.validationHint}>{invalidBcc.join(', ')}</Text>
