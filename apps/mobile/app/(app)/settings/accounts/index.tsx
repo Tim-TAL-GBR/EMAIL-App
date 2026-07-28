@@ -17,7 +17,6 @@ export default function AccountsSettingsScreen() {
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'Konto' | 'Postfächer' | 'Zugangsdaten' | 'Mitglieder'>('Konto');
   const [editingAlias, setEditingAlias] = useState(false);
-  const [aliasTab, setAliasTab] = useState<'Alias' | 'Signatur'>('Alias');
 
   // Modal for new Inbox
   const [isAddingInbox, setIsAddingInbox] = useState(false);
@@ -990,16 +989,10 @@ export default function AccountsSettingsScreen() {
           </View>
           <ScrollView>
             <TouchableOpacity 
-              style={[styles.modalTab, aliasTab === 'Alias' && styles.modalTabActive]}
-              onPress={() => setAliasTab('Alias')}
+              style={[styles.modalTab, true && styles.modalTabActive]}
+              onPress={() => {}}
             >
-              <Text style={[styles.modalTabText, aliasTab === 'Alias' && styles.modalTabTextActive]}>Alias</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.modalTab, aliasTab === 'Signatur' && styles.modalTabActive]}
-              onPress={() => setAliasTab('Signatur')}
-            >
-              <Text style={[styles.modalTabText, aliasTab === 'Signatur' && styles.modalTabTextActive]}>Signatur</Text>
+              <Text style={[styles.modalTabText, true && styles.modalTabTextActive]}>Alias</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -1017,81 +1010,49 @@ export default function AccountsSettingsScreen() {
           </View>
           
           <ScrollView style={styles.scroll} contentContainerStyle={styles.modalContentPad}>
-            {aliasTab === 'Alias' ? (
-              <>
-                <Text style={styles.sectionTitle}>Allgemein</Text>
-                <View style={styles.card}>
-                  <View style={styles.settingBlock}>
-                    <Text style={styles.settingLabel}>Adresse</Text>
-                    <Text style={styles.settingSubLabel}>Du hast delegierten Zugriff, die Adresse kann nicht bearbeitet werden.</Text>
-                    <TextInput style={[styles.input, { backgroundColor: Colors.background }]} editable={false} value={account?.email_address} />
-                  </View>
-                  <View style={styles.settingBlock}>
-                    <Text style={styles.settingLabel}>Name</Text>
-                    <Text style={styles.settingSubLabel}>Der Name, der auf deinen gesendeten E-Mails erscheint.</Text>
-                    <TextInput style={styles.input} value={accountName} onChangeText={setAccountName} placeholder="Tim Regener" />
-                  </View>
-                  <View style={styles.settingBlock}>
-                    <Text style={styles.settingLabel}>Beschreibung</Text>
-                    <Text style={styles.settingSubLabel}>Unterscheide deine Aliase im Composer. Dies wird von den Empfängern nicht gesehen.</Text>
-                    <TextInput style={styles.input} placeholder='z.B. "Lange Signatur"' placeholderTextColor={Colors.textTertiary} />
-                  </View>
-                </View>
+            <Text style={styles.sectionTitle}>Allgemein</Text>
+            <View style={styles.card}>
+              <View style={styles.settingBlock}>
+                <Text style={styles.settingLabel}>Adresse</Text>
+                <Text style={styles.settingSubLabel}>Du hast delegierten Zugriff, die Adresse kann nicht bearbeitet werden.</Text>
+                <TextInput style={[styles.input, { backgroundColor: Colors.background }]} editable={false} value={account?.email_address} />
+              </View>
+              <View style={styles.settingBlock}>
+                <Text style={styles.settingLabel}>Name</Text>
+                <Text style={styles.settingSubLabel}>Der Name, der auf deinen gesendeten E-Mails erscheint.</Text>
+                <TextInput style={styles.input} value={accountName} onChangeText={setAccountName} placeholder="Tim Regener" />
+              </View>
+              <View style={styles.settingBlock}>
+                <Text style={styles.settingLabel}>Beschreibung</Text>
+                <Text style={styles.settingSubLabel}>Unterscheide deine Aliase im Composer. Dies wird von den Empfängern nicht gesehen.</Text>
+                <TextInput style={styles.input} placeholder='z.B. "Lange Signatur"' placeholderTextColor={Colors.textTertiary} />
+              </View>
+            </View>
 
-                <Text style={styles.sectionTitle}>Optionen</Text>
-                <View style={styles.card}>
-                  <View style={styles.settingRowModal}>
-                    <Text style={styles.settingLabel}>Diesen Alias im "Von"-Feld des Composers ausblenden</Text>
-                    <Switch trackColor={{ false: Colors.border, true: Colors.info }} thumbColor="#FFF" ios_backgroundColor={Colors.border} />
-                  </View>
-                  <View style={styles.settingRowModalBorderFree}>
-                    <Text style={styles.settingLabel}>Beim Antworten niemals automatisch als Absender auswählen</Text>
-                    <Switch trackColor={{ false: Colors.border, true: Colors.info }} thumbColor="#FFF" ios_backgroundColor={Colors.border} />
-                  </View>
-                </View>
+            <Text style={styles.sectionTitle}>Optionen</Text>
+            <View style={styles.card}>
+              <View style={styles.settingRowModal}>
+                <Text style={styles.settingLabel}>Diesen Alias im "Von"-Feld des Composers ausblenden</Text>
+                <Switch trackColor={{ false: Colors.border, true: Colors.info }} thumbColor="#FFF" ios_backgroundColor={Colors.border} />
+              </View>
+              <View style={styles.settingRowModalBorderFree}>
+                <Text style={styles.settingLabel}>Beim Antworten niemals automatisch als Absender auswählen</Text>
+                <Switch trackColor={{ false: Colors.border, true: Colors.info }} thumbColor="#FFF" ios_backgroundColor={Colors.border} />
+              </View>
+            </View>
 
-                <Text style={styles.sectionTitle}>Auto Cc / Bcc</Text>
-                <View style={styles.card}>
-                  <Text style={styles.settingSubLabel}>Füge beim Senden über diesen Alias automatisch Empfänger in die Felder Cc oder Bcc ein.</Text>
-                  <View style={{ marginTop: Spacing.md }}>
-                    <Text style={styles.settingLabel}>Cc</Text>
-                    <TextInput style={styles.input} />
-                  </View>
-                  <View style={{ marginTop: Spacing.md }}>
-                    <Text style={styles.settingLabel}>Bcc</Text>
-                    <TextInput style={styles.input} />
-                  </View>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.sectionTitle}>Signatur</Text>
-                <View style={styles.card}>
-                  <View style={styles.flexRowBetween}>
-                    <Text style={styles.settingLabel}>Wähle eine Signatur:</Text>
-                    <Text style={styles.settingValue}>Studio - Tim Regener ↕</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.sectionTitle}>Signatur-Vorschau</Text>
-                <View style={[styles.card, { padding: Spacing.xl }]}>
-                  <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.text, lineHeight: 20 }}>
-                    Nachrichtentext.{"\n\n"}
-                    mit cleveren Grüßen{"\n"}
-                    Tim Regener{"\n\n"}
-                    Email: {account?.email_address}{"\n"}
-                    Internet: www.clever-fit.com/celle/{"\n\n"}
-                    clever fit Celle{"\n"}
-                    77er Straße 52{"\n"}
-                    29221 Celle{"\n\n"}
-                    Vertraulichkeitshinweis{"\n\n"}
-                    Diese Nachricht und jeder übermittelte Anhang beinhaltet{"\n"}
-                    vertrauliche Informationen und ist nur für die Personen oder das Unternehmen{"\n"}
-                    bestimmt, an welche sie tatsächlich gerichtet ist.
-                  </Text>
-                </View>
-              </>
-            )}
+            <Text style={styles.sectionTitle}>Auto Cc / Bcc</Text>
+            <View style={styles.card}>
+              <Text style={styles.settingSubLabel}>Füge beim Senden über diesen Alias automatisch Empfänger in die Felder Cc oder Bcc ein.</Text>
+              <View style={{ marginTop: Spacing.md }}>
+                <Text style={styles.settingLabel}>Cc</Text>
+                <TextInput style={styles.input} />
+              </View>
+              <View style={{ marginTop: Spacing.md }}>
+                <Text style={styles.settingLabel}>Bcc</Text>
+                <TextInput style={styles.input} />
+              </View>
+            </View>
           </ScrollView>
 
           <View style={styles.modalFooter}>
