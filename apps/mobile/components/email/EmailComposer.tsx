@@ -70,11 +70,14 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
       const activeInbox = inboxes.find(i => i.id === activeInboxId);
       const inboxEmail = activeInbox?.email_address || '';
       const inboxName = activeInbox?.name && activeInbox.name !== inboxEmail ? activeInbox.name : undefined;
+      const { data: { user } } = await supabase.auth.getUser();
       const { data } = await supabase
         .from('inbox_aliases')
-        .select('email_address, name')
+        .select('email_address, name, user_id')
         .eq('inbox_id', activeInboxId);
-      const aliases = data || [];
+      const allAliases = data || [];
+      // Nur Aliase anzeigen, die dem aktuellen User zugewiesen sind oder keinem User
+      const aliases = allAliases.filter(a => !a.user_id || a.user_id === user?.id);
       setSenderAliases([{ email_address: inboxEmail, name: inboxName || 'Standard' }, ...aliases.filter(a => a.email_address !== inboxEmail)]);
       const currentEmail = extractEmail(senderAddress);
       if (!senderAddress || !aliases.some(a => a.email_address === currentEmail) && currentEmail !== inboxEmail) {
