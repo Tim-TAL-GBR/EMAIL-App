@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
 import { useSignatures, Signature } from '../../../hooks/useSignatures';
 import { useInboxes } from '../../../hooks/useInboxes';
+import { useTeams } from '../../../hooks/useTeams';
 import { supabase } from '../../../lib/supabase';
 import { useAuthStore } from '../../../stores/authStore';
 import { UserEmailAssignments } from '../../../components/settings/UserEmailAssignments';
@@ -11,47 +12,49 @@ export default function SignaturesSettingsScreen() {
   const { user } = useAuthStore();
   const { signatures, refetch: refetchSignatures } = useSignatures();
   const { inboxes, refetch: refetchInboxes } = useInboxes();
+  const { orgs, getSubTeams, teams: allHookTeams } = useTeams();
 
   const [selectedItem, setSelectedItem] = useState<'you' | 'org'>('you');
   const [orgTab, setOrgTab] = useState<'signatures' | 'assignments'>('signatures');
 
   const personalSignatures = signatures.filter(s => s.scope === 'private');
 
-  const [allTeams, setAllTeams] = useState<{ id: string; name: string }[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const allTeams = React.useMemo(() => {
+    const result: { id: string; name: string; parent_id: string | null }[] = [];
+    for (const org of orgs) {
+      result.push({ id: org.id, name: org.name, parent_id: null });
+      const subs = getSubTeams(org.id);
+      for (const sub of subs) {
+        result.push({ id: sub.id, name: sub.name, parent_id: sub.parent_id });
+      }
+    }
+    // Add orphans (teams without an org)
+    for (const t of allHookTeams) {
+      if (!result.find(r => r.id === t.id)) {
+        result.push({ id: t.id, name: t.name, parent_id: t.parent_id });
+      }
+    }
+    return result;
+  }, [orgs, allHookTeams, getSubTeams]);
 
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   useEffect(() => {
-    const fetchTeams = async () => {
-      try {
-        const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${API_URL}/api/teams`, {
-          headers: { 'Authorization': `Bearer ${session?.access_token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setAllTeams(data);
-          if (data.length > 0 && !selectedTeamId) {
-            setSelectedTeamId(data[0].id);
-          }
-        }
-      } catch (e) { console.warn('Error fetching teams:', e); }
-    };
-    fetchTeams();
-  }, []);
+    if (!selectedTeamId && allTeams.length > 0) {
+      setSelectedTeamId(allTeams[0].id);
+    }
+  }, [allTeams, selectedTeamId]);
 
   const selectedTeam = allTeams.find(t => t.id === selectedTeamId);
-  const orgSignatures = signatures.filter(s => s.scope === 'team' && s.team_id === selectedTeamId);
-
-  const teams = React.useMemo(() => {
-    const map = new Map<string, { id: string; name: string }>();
-    inboxes.forEach(i => {
-      if (i.team?.id && !map.has(i.team.id)) {
-        map.set(i.team.id, i.team);
-      }
-    });
-    return Array.from(map.values());
-  }, [inboxes]);
+  // For orgs, show signatures of all sub-teams too
+  const orgSignatures = React.useMemo(() => {
+    if (!selectedTeam) return [];
+    if (selectedTeam.parent_id) {
+      return signatures.filter(s => s.scope === 'team' && s.team_id === selectedTeamId);
+    }
+    // Org selected – include sub-team signatures
+    const teamIds = [selectedTeam.id, ...getSubTeams(selectedTeam.id).map(s => s.id)];
+    return signatures.filter(s => s.scope === 'team' && teamIds.includes(s.team_id));
+  }, [signatures, selectedTeam, selectedTeamId, getSubTeams]);
 
   interface InboxAlias {
     id: string;
@@ -377,25 +380,47 @@ export default function SignaturesSettingsScreen() {
           </TouchableOpacity>
 
           <Text style={[styles.sidebarSectionTitle, { marginTop: Spacing.md }]}>Organisations-Signaturen</Text>
-          {allTeams.map((team) => {
-            const teamSigs = signatures.filter(s => s.scope === 'team' && s.team_id === team.id);
+          {orgs.map((org) => {
+            const orgSigs = signatures.filter(s => s.scope === 'team' && s.team_id === org.id);
+            const subs = getSubTeams(org.id);
+            const isOrgSelected = selectedItem === 'org' && selectedTeamId === org.id;
             return (
-              <TouchableOpacity 
-                key={team.id}
-                style={[styles.sidebarItem, selectedItem === 'org' && selectedTeamId === team.id && styles.sidebarItemActive]}
-                onPress={() => { setSelectedItem('org'); setSelectedTeamId(team.id); }}
-              >
-                <View style={styles.orgAvatar}>
-                  <Text style={[styles.orgAvatarText]}>{team.name.substring(0,2).toUpperCase()}</Text>
-                </View>
-                <View>
-                  <Text style={[styles.sidebarItemTitle, selectedItem === 'org' && selectedTeamId === team.id && styles.sidebarItemTitleActive]}>{team.name}</Text>
-                  <Text style={[styles.sidebarItemSubtitle, selectedItem === 'org' && selectedTeamId === team.id && styles.sidebarItemSubtitleActive]}>{teamSigs.length} Signaturen</Text>
-                </View>
-              </TouchableOpacity>
+              <View key={org.id}>
+                <TouchableOpacity 
+                  style={[styles.sidebarItem, isOrgSelected && styles.sidebarItemActive]}
+                  onPress={() => { setSelectedItem('org'); setSelectedTeamId(org.id); }}
+                >
+                  <View style={styles.orgAvatar}>
+                    <Text style={styles.orgAvatarText}>{org.name.substring(0,2).toUpperCase()}</Text>
+                  </View>
+                  <View>
+                    <Text style={[styles.sidebarItemTitle, isOrgSelected && styles.sidebarItemTitleActive]}>{org.name}</Text>
+                    <Text style={[styles.sidebarItemSubtitle, isOrgSelected && styles.sidebarItemSubtitleActive]}>{orgSigs.length} Signaturen</Text>
+                  </View>
+                </TouchableOpacity>
+                {subs.map(sub => {
+                  const subSigs = signatures.filter(s => s.scope === 'team' && s.team_id === sub.id);
+                  const isSubSelected = selectedItem === 'org' && selectedTeamId === sub.id;
+                  return (
+                    <TouchableOpacity 
+                      key={sub.id}
+                      style={[styles.sidebarItem, styles.subTeamItem, isSubSelected && styles.sidebarItemActive]}
+                      onPress={() => { setSelectedItem('org'); setSelectedTeamId(sub.id); }}
+                    >
+                      <View style={[styles.orgAvatar, { width: 20, height: 20, marginLeft: Spacing.sm }]}>
+                        <Text style={[styles.orgAvatarText, { fontSize: 10 }]}>{sub.name.substring(0,2).toUpperCase()}</Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.sidebarItemTitle, isSubSelected && styles.sidebarItemTitleActive]}>{sub.name}</Text>
+                        <Text style={[styles.sidebarItemSubtitle, isSubSelected && styles.sidebarItemSubtitleActive]}>{subSigs.length} Signaturen</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             );
           })}
-          {allTeams.length === 0 && (
+          {orgs.length === 0 && (
             <Text style={[styles.sidebarItemSubtitle, { marginHorizontal: Spacing.sm, marginTop: Spacing.xs }]}>Keine Organisationen</Text>
           )}
         </View>
@@ -1067,5 +1092,8 @@ const styles = StyleSheet.create({
   orgTabTextActive: {
     color: Colors.info,
     fontWeight: FontWeight.bold,
+  },
+  subTeamItem: {
+    paddingLeft: Spacing.xl,
   },
 });
