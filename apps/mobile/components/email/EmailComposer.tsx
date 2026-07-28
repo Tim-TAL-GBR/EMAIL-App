@@ -1,17 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, Text, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, Text, ActivityIndicator, Alert, Platform, useWindowDimensions } from 'react-native';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius, FontFamily } from '../../lib/constants';
 import { Button } from '../ui/Button';
 import { supabase } from '../../lib/supabase';
 import { Email } from '../../stores/emailStore';
 import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@expo/vector-icons';
-import { Platform, useWindowDimensions } from 'react-native';
 import { DraggableWindow } from '../ui/DraggableWindow';
 import { ChatFeed } from '../chat/ChatFeed';
 import { useComposerStore } from '../../stores/composerStore';
 import { useInboxes } from '../../hooks/useInboxes';
 import { useSignatures } from '../../hooks/useSignatures';
+import { useDraft } from '../../hooks/useDraft';
+
+const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
+const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface EmailComposerProps {
   visible: boolean;
@@ -22,19 +26,46 @@ interface EmailComposerProps {
   draftToResume?: any;
 }
 
-import { useDraft } from '../../hooks/useDraft';
+function extractEmail(str?: string) {
+  if (!str) return '';
+  const match = str.match(/<([^>]+)>/);
+  return match ? match[1].trim() : str.trim();
+}
+
+function formatSender(alias: { email_address: string; name?: string }, defaultName?: string) {
+  const name = alias.name && alias.name !== 'Standard' ? alias.name : defaultName;
+  return name ? `${name} <${alias.email_address}>` : alias.email_address;
+}
+
+function isValidEmail(v: string) {
+  return EMAIL_REGEX.test(v.trim());
+}
+
+function parseEmailList(str: string) {
+  return str.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function findInvalidEmails(str: string) {
+  return parseEmailList(str).filter(e => !isValidEmail(e));
+}
+
+function findMissingAttachmentRefs(body: string, attachments: { file_name: string }[]) {
+  const lower = body.toLowerCase();
+  const hintWords = ['anhang', 'attachment', 'datei', 'siehe anbei', 'beigefügt', 'beilage', 'pdf', 'dokument'];
+  const hasHint = hintWords.some(w => lower.includes(w));
+  if (!hasHint) return [];
+  if (attachments.length > 0) return [];
+  return ['Der Text erwähnt Anhänge, aber es wurden keine Dateien angehängt.'];
+}
 
 export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, draftToResume }: EmailComposerProps) {
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' || Platform.OS === 'macos' || width > 768;
 
   const { draft, saveDraft, deleteDraft, isLoading: draftLoading } = useDraft(
-    inboxId, 
+    inboxId,
     sourceEmail?.thread_id,
-    { 
-      fetchExisting: !!draftToResume, 
-      draftId: draftToResume?.id 
-    }
+    { fetchExisting: !!draftToResume, draftId: draftToResume?.id }
   );
 
   const { inboxes } = useInboxes();
@@ -43,11 +74,59 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const [senderAddress, setSenderAddress] = useState('');
   const [senderAliases, setSenderAliases] = useState<{ email_address: string; name?: string }[]>([]);
   const [showSenderPicker, setShowSenderPicker] = useState(false);
-  
-  // Use provided inboxId, or fallback to first available inbox if opened from Global Inbox
+
   const activeInboxId = inboxId || (inboxes && inboxes.length > 0 ? inboxes[0].id : '');
 
-  // Fetch per-user email settings for the active inbox
+  // Form state
+  const [to, setTo] = useState('');
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
+  const [showBcc, setShowBcc] = useState(false);
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+
+  const [isSending, setIsSending] = useState(false);
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const [isUploading, setIsUploading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null);
+
+  const originalBody = sourceEmail?.body_text || '';
+  const quotedBody = useMemo(() => originalBody.split('\n').map(line => `> ${line}`).join('\n'), [originalBody]);
+  const initialBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quotedBody}` : '';
+
+  // Pre-fill subject/to on mount
+  useEffect(() => {
+    if (!draftToResume && !draft) {
+      setTo(mode === 'reply'
+        ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length
+            ? sourceEmail.to_addresses[0]
+            : sourceEmail?.from_address)
+        : '');
+      setCc('');
+      setBcc('');
+      setShowBcc(false);
+      setSubject(
+        mode === 'reply' ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`) :
+        mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : ''
+      );
+      setBody(initialBody);
+      setAttachments([]);
+      setUploadProgress({});
+    }
+  }, [visible]);
+
+  // Load draft data
+  useEffect(() => {
+    if (draft) {
+      if (draft.to_addresses?.length) setTo(draft.to_addresses.join(', '));
+      if (draft.cc_addresses?.length) setCc(draft.cc_addresses.join(', '));
+      if (draft.subject) setSubject(draft.subject);
+      if (draft.body_text) setBody(draft.body_text);
+    }
+  }, [draft?.id]);
+
+  // Sender aliases
   useEffect(() => {
     if (!activeInboxId || !visible) return;
     (async () => {
@@ -63,7 +142,6 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     })();
   }, [activeInboxId, visible]);
 
-  // Fetch inbox + aliases to populate sender picker
   useEffect(() => {
     if (!activeInboxId || !visible) return;
     (async () => {
@@ -76,47 +154,76 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         .select('email_address, name, user_id')
         .eq('inbox_id', activeInboxId);
       const allAliases = data || [];
-      // Nur Aliase anzeigen, die dem aktuellen User zugewiesen sind oder keinem User
       const aliases = allAliases.filter(a => !a.user_id || a.user_id === user?.id);
       setSenderAliases([{ email_address: inboxEmail, name: inboxName || 'Standard' }, ...aliases.filter(a => a.email_address !== inboxEmail)]);
       const currentEmail = extractEmail(senderAddress);
-      if (!senderAddress || !aliases.some(a => a.email_address === currentEmail) && currentEmail !== inboxEmail) {
+      if (!senderAddress || (!aliases.some(a => a.email_address === currentEmail) && currentEmail !== inboxEmail)) {
         const displayName = userSigSettings?.display_name || inboxName;
         setSenderAddress(displayName ? `${displayName} <${inboxEmail}>` : inboxEmail);
       }
     })();
   }, [activeInboxId, visible, userSigSettings]);
 
-  const extractEmail = (str?: string) => {
-    if (!str) return '';
-    const match = str.match(/<([^>]+)>/);
-    return match ? match[1].trim() : str.trim();
-  };
+  // Signature on open
+  useEffect(() => {
+    if (visible && !draftToResume && !draft && activeInboxId) {
+      let sigText: string | null = null;
+      if (userSigSettings?.signature?.content_text) {
+        sigText = userSigSettings.signature.content_text;
+      } else if (userSigSettings?.signature_id) {
+        const userSig = signatures.find(s => s.id === userSigSettings.signature_id);
+        if (userSig?.content_text) sigText = userSig.content_text;
+      }
+      if (!sigText) {
+        const activeInbox = inboxes.find(i => i.id === activeInboxId);
+        if (activeInbox?.signature_id) {
+          const sig = signatures.find(s => s.id === activeInbox.signature_id);
+          if (sig?.content_text) sigText = sig.content_text;
+        }
+      }
+      if (sigText) {
+        const formatted = `\n\n-- \n${sigText}`;
+        setBody(prev => prev.includes(formatted) ? prev : prev + formatted);
+      }
+    }
+  }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings]);
 
-  // Create quoting for reply/forward
-  const originalBody = sourceEmail?.body_text || '';
-  const quotedBody = originalBody.split('\n').map(line => `> ${line}`).join('\n');
-  const initialBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quotedBody}` : '';
+  // Auto-save with indicator
+  useEffect(() => {
+    if (draftLoading || !visible) return;
+    const timer = setTimeout(async () => {
+      if (to || cc || bcc || subject || (body && body !== initialBody)) {
+        setSaveStatus('saving');
+        await saveDraft({
+          to_addresses: parseEmailList(to),
+          cc_addresses: parseEmailList(cc),
+          subject,
+          body_text: body,
+          in_reply_to: mode === 'reply' ? sourceEmail?.message_id : undefined,
+        });
+        setSaveStatus('saved');
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [to, cc, bcc, subject, body, draftLoading, visible, saveDraft]);
 
-  const [to, setTo] = useState(
-    mode === 'reply' 
-      ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length 
-          ? sourceEmail.to_addresses[0] 
-          : sourceEmail?.from_address)
-      : ''
-  );
-  const [cc, setCc] = useState('');
-  const [subject, setSubject] = useState(
-    mode === 'reply' ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`) :
-    mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : ''
-  );
-  const [body, setBody] = useState(initialBody);
-  const [isSending, setIsSending] = useState(false);
-  
-  // Attachments
-  const [attachments, setAttachments] = useState<any[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
+  const resetSaveStatus = useCallback(() => {
+    if (saveStatus === 'saved') setSaveStatus(null);
+  }, [saveStatus]);
 
+  const onToChange = useCallback((v: string) => { setTo(v); resetSaveStatus(); }, [resetSaveStatus]);
+  const onCcChange = useCallback((v: string) => { setCc(v); resetSaveStatus(); }, [resetSaveStatus]);
+  const onBccChange = useCallback((v: string) => { setBcc(v); resetSaveStatus(); }, [resetSaveStatus]);
+  const onSubjectChange = useCallback((v: string) => { setSubject(v); resetSaveStatus(); }, [resetSaveStatus]);
+  const onBodyChange = useCallback((v: string) => { setBody(v); resetSaveStatus(); }, [resetSaveStatus]);
+
+  const invalidTo = useMemo(() => to ? findInvalidEmails(to) : [], [to]);
+  const invalidCc = useMemo(() => cc ? findInvalidEmails(cc) : [], [cc]);
+  const invalidBcc = useMemo(() => bcc ? findInvalidEmails(bcc) : [], [bcc]);
+  const hasInvalidEmails = invalidTo.length > 0 || invalidCc.length > 0 || invalidBcc.length > 0;
+  const hasUploading = Object.values(uploadProgress).some(p => p < 100) || isUploading;
+
+  // Attachment handling with size limit + progress
   const handlePickDocument = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -124,42 +231,55 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         copyToCacheDirectory: true,
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setIsUploading(true);
-        const newAttachments = [...attachments];
-        
-        for (const asset of result.assets) {
-          const fileExt = asset.name.split('.').pop() || '';
-          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-          const filePath = `drafts/${fileName}`; // Store in drafts prefix initially
+      if (result.canceled || !result.assets?.length) return;
 
-          // Read file (react-native / expo handling for fetch)
-          const response = await fetch(asset.uri);
-          const blob = await response.blob();
-
-          const { data, error } = await supabase.storage
-            .from('email_attachments')
-            .upload(filePath, blob, {
-              contentType: asset.mimeType || 'application/octet-stream',
-            });
-
-          if (error) {
-            console.error('Upload error:', error);
-            alert(`Upload von ${asset.name} fehlgeschlagen.`);
-          } else if (data) {
-            newAttachments.push({
-              file_name: asset.name,
-              content_type: asset.mimeType || 'application/octet-stream',
-              size_bytes: asset.size || blob.size,
-              storage_path: data.path,
-              is_inline: false,
-            });
-          }
-        }
-        
-        setAttachments(newAttachments);
-        setIsUploading(false);
+      const tooBig = result.assets.filter(a => (a.size || 0) > MAX_ATTACHMENT_SIZE);
+      if (tooBig.length > 0) {
+        Alert.alert(
+          'Datei zu groß',
+          `${tooBig.map(a => a.name).join(', ')} überschreitet das Limit von 25 MB.`
+        );
       }
+
+      const validAssets = result.assets.filter(a => (a.size || 0) <= MAX_ATTACHMENT_SIZE);
+      if (validAssets.length === 0) return;
+
+      setIsUploading(true);
+      const newAttachments = [...attachments];
+
+      for (const asset of validAssets) {
+        const fileExt = asset.name.split('.').pop() || '';
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `drafts/${fileName}`;
+
+        setUploadProgress(prev => ({ ...prev, [asset.name]: 0 }));
+
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
+
+        const { data, error } = await supabase.storage
+          .from('email_attachments')
+          .upload(filePath, blob, {
+            contentType: asset.mimeType || 'application/octet-stream',
+          });
+
+        if (error) {
+          console.error('Upload error:', error);
+          Alert.alert('Upload fehlgeschlagen', `${asset.name}: ${error.message}`);
+        } else if (data) {
+          newAttachments.push({
+            file_name: asset.name,
+            content_type: asset.mimeType || 'application/octet-stream',
+            size_bytes: asset.size || blob.size,
+            storage_path: data.path,
+            is_inline: false,
+          });
+        }
+        setUploadProgress(prev => ({ ...prev, [asset.name]: 100 }));
+      }
+
+      setAttachments(newAttachments);
+      setIsUploading(false);
     } catch (e) {
       console.error(e);
       setIsUploading(false);
@@ -172,107 +292,82 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     setAttachments(newAtt);
   };
 
-  // Load draft data when it arrives
-  useEffect(() => {
-    if (draft) {
-      if (draft.to_addresses && draft.to_addresses.length > 0) setTo(draft.to_addresses.join(', '));
-      if (draft.cc_addresses && draft.cc_addresses.length > 0) setCc(draft.cc_addresses.join(', '));
-      if (draft.subject) setSubject(draft.subject);
-      if (draft.body_text) setBody(draft.body_text);
-    }
-  }, [draft?.id]);
+  // Scan body for filenames not attached
+  const missingRefs = useMemo(() => {
+    const names = attachments.map(a => a.file_name);
+    return findMissingAttachmentRefs(body, attachments);
+  }, [body, attachments]);
 
-  // Load signature and reset form on open
-  useEffect(() => {
-    if (visible) {
-      if (!draftToResume && !draft) {
-        // Reset state for new composition
-        const newTo = mode === 'reply' 
-          ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length 
-              ? sourceEmail.to_addresses[0] 
-              : sourceEmail?.from_address)
-          : '';
-        const newSubject = mode === 'reply' ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`) :
-                           mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : '';
-        const quotedBody = (sourceEmail?.body_text || '').split('\n').map(line => `> ${line}`).join('\n');
-        const newBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quotedBody}` : '';
-        
-        setTo(newTo);
-        setCc('');
-        setSubject(newSubject);
-        setBody(newBody);
-        setAttachments([]);
-      }
-
-      // Add signature if not present — prefer per-user settings, fall back to inbox
-      if (!draftToResume && !draft && activeInboxId) {
-        let sigText: string | null = null;
-
-        // 1. Try per-user email settings (admin-assigned signature for this user+inbox)
-        if (userSigSettings?.signature?.content_text) {
-          sigText = userSigSettings.signature.content_text;
-        } else if (userSigSettings?.signature_id) {
-          const userSig = signatures.find(s => s.id === userSigSettings.signature_id);
-          if (userSig?.content_text) sigText = userSig.content_text;
-        }
-
-        // 2. Fallback to inbox-level signature
-        if (!sigText) {
-          const activeInbox = inboxes.find(i => i.id === activeInboxId);
-          if (activeInbox?.signature_id) {
-            const sig = signatures.find(s => s.id === activeInbox.signature_id);
-            if (sig?.content_text) sigText = sig.content_text;
-          }
-        }
-
-        if (sigText) {
-          const formatted = `\n\n-- \n${sigText}`;
-          setBody(prev => {
-            if (!prev.includes(formatted)) return prev + formatted;
-            return prev;
-          });
-        }
-      }
-    }
-  }, [visible, mode, sourceEmail, inboxId, inboxes, signatures, draftToResume, draft, userSigSettings]);
-
-  // Auto-save logic
-  useEffect(() => {
-    if (draftLoading || !visible) return;
-
-    const timer = setTimeout(() => {
-      // Only save if there's actual user input (different from initial defaults)
-      if (to || cc || subject || (body && body !== initialBody)) {
-        saveDraft({
-          to_addresses: to ? to.split(',').map(s => s.trim()).filter(Boolean) : [],
-          cc_addresses: cc ? cc.split(',').map(s => s.trim()).filter(Boolean) : [],
-          subject,
-          body_text: body,
-          in_reply_to: mode === 'reply' ? sourceEmail?.message_id : undefined,
-        });
-      }
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [to, cc, subject, body, draftLoading, visible, saveDraft]);
-
-  const handleSend = async () => {
-    if (!to || !subject || !body) {
-      alert('Bitte fülle alle Pflichtfelder aus (An, Betreff, Text).');
+  const handleSend = useCallback(async () => {
+    // 1. Check uploading
+    if (hasUploading) {
+      Alert.alert('Upload läuft', 'Bitte warte, bis alle Anhänge hochgeladen sind.');
       return;
+    }
+
+    // 2. Check missing attachment refs
+    if (missingRefs.length > 0) {
+      // keep but don't block — just visual warning
+    }
+
+    // 3. Validate emails
+    if (hasInvalidEmails) {
+      Alert.alert(
+        'Ungültige E-Mail-Adressen',
+        `Bitte korrigiere: ${[...invalidTo, ...invalidCc, ...invalidBcc].join(', ')}`
+      );
+      return;
+    }
+
+    const toAddresses = parseEmailList(to);
+
+    // 4. Check empty to
+    if (toAddresses.length === 0) {
+      Alert.alert('Fehlender Empfänger', 'Bitte gib mindestens einen Empfänger an.');
+      return;
+    }
+
+    // 5. Check empty subject with confirmation
+    if (!subject?.trim()) {
+      const confirmed = await new Promise(resolve => {
+        Alert.alert(
+          'Ohne Betreff senden?',
+          'Möchtest du die E-Mail wirklich ohne Betreff senden?',
+          [
+            { text: 'Abbrechen', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Trotzdem senden', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!confirmed) return;
+    }
+
+    // 6. Check empty body with confirmation
+    if (!body?.trim()) {
+      const confirmed = await new Promise(resolve => {
+        Alert.alert(
+          'Leere Nachricht senden?',
+          'Möchtest du die E-Mail wirklich ohne Text senden?',
+          [
+            { text: 'Abbrechen', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Trotzdem senden', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!confirmed) return;
     }
 
     setIsSending(true);
     try {
       const { data: session } = await supabase.auth.getSession();
-      
-      const toAddresses = to.split(',').map(s => s.trim()).filter(Boolean);
-      const ccAddresses = cc.split(',').map(s => s.trim()).filter(Boolean);
+      const ccAddresses = parseEmailList(cc);
+      const bccAddresses = parseEmailList(bcc);
 
       const payload = {
         inboxId: activeInboxId,
         to: toAddresses,
         cc: ccAddresses,
+        bcc: bccAddresses,
         subject,
         bodyText: body,
         inReplyTo: mode === 'reply' ? sourceEmail?.message_id : undefined,
@@ -281,15 +376,13 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         fromAddress: senderAddress || undefined,
       };
 
-      const apiUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
-      
-      const response = await fetch(`${apiUrl}/api/mail/send`, {
+      const response = await fetch(`${API_URL}/api/mail/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.session?.access_token}`
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -297,122 +390,183 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         throw new Error(error.error || 'Fehler beim Senden');
       }
 
-      await deleteDraft(); // Clean up draft after sending
+      await deleteDraft();
       onClose();
     } catch (error: any) {
-      alert('Fehler beim Senden: ' + error.message);
+      Alert.alert('Fehler beim Senden', error.message);
     } finally {
       setIsSending(false);
     }
-  };
+  }, [to, cc, bcc, subject, body, attachments, senderAddress, activeInboxId, mode, sourceEmail, hasUploading, hasInvalidEmails, invalidTo, invalidCc, invalidBcc, missingRefs, deleteDraft, onClose]);
+
+  // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to send (web)
+  useEffect(() => {
+    if (!visible || !isDesktop) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleSend();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [visible, isDesktop, handleSend]);
 
   const composerContent = (
-    <>
     <SafeAreaView style={[styles.container, isDesktop && styles.desktopContainer]}>
       <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-            <Text style={styles.closeText}>Abbrechen</Text>
-          </TouchableOpacity>
+        <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+          <Text style={styles.closeText}>Abbrechen</Text>
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
           <Text style={styles.title}>
             {mode === 'reply' ? 'Antworten' : mode === 'forward' ? 'Weiterleiten' : 'Neue E-Mail'}
           </Text>
-          <Button 
-            title="Senden" 
-            size="sm" 
-            onPress={handleSend} 
-            isLoading={isSending} 
-            disabled={!to || !subject || !body || isSending} 
-          />
+          {saveStatus === 'saving' && <Text style={styles.saveStatus}>Speichert…</Text>}
+          {saveStatus === 'saved' && <Text style={[styles.saveStatus, { color: Colors.success }]}>Gespeichert</Text>}
+        </View>
+        <Button
+          title="Senden"
+          size="sm"
+          onPress={handleSend}
+          isLoading={isSending}
+          disabled={isSending || hasUploading}
+        />
+      </View>
+
+      <View style={styles.form}>
+        <View style={styles.inputRow}>
+          <Text style={styles.label}>Von:</Text>
+          <TouchableOpacity
+            style={[styles.input, styles.senderPicker]}
+            onPress={() => setShowSenderPicker(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.senderText} numberOfLines={1}>
+              {senderAddress || 'Laden...'}
+            </Text>
+            <Feather name="chevron-down" size={16} color={Colors.textSecondary} />
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.form}>
-          <View style={styles.inputRow}>
-            <Text style={styles.label}>Von:</Text>
-            <TouchableOpacity
-              style={[styles.input, styles.senderPicker]}
-              onPress={() => setShowSenderPicker(true)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.senderText} numberOfLines={1}>
-                {senderAddress || 'Laden...'}
-              </Text>
-              <Feather name="chevron-down" size={16} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.inputRow}>
-            <Text style={styles.label}>An:</Text>
-            <TextInput 
-              style={styles.input} 
-              value={to} 
-              onChangeText={setTo} 
+        <View style={styles.inputRow}>
+          <Text style={styles.label}>An:</Text>
+          <View style={{ flex: 1 }}>
+            <TextInput
+              style={[styles.input, invalidTo.length > 0 && { color: Colors.error }]}
+              value={to}
+              onChangeText={onToChange}
               placeholder="empfaenger@beispiel.de"
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
             />
+            {invalidTo.length > 0 && (
+              <Text style={styles.validationHint}>{invalidTo.join(', ')}</Text>
+            )}
           </View>
+        </View>
 
-          <View style={styles.inputRow}>
-            <Text style={styles.label}>Cc:</Text>
-            <TextInput 
-              style={styles.input} 
-              value={cc} 
-              onChangeText={setCc} 
+        <View style={styles.inputRow}>
+          <Text style={styles.label}>Cc:</Text>
+          <View style={{ flex: 1 }}>
+            <TextInput
+              style={[styles.input, invalidCc.length > 0 && { color: Colors.error }]}
+              value={cc}
+              onChangeText={onCcChange}
               placeholder="optional@beispiel.de"
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
             />
+            {invalidCc.length > 0 && (
+              <Text style={styles.validationHint}>{invalidCc.join(', ')}</Text>
+            )}
           </View>
-
-          <View style={styles.inputRow}>
-            <Text style={styles.label}>Betreff:</Text>
-            <TextInput 
-              style={styles.input} 
-              value={subject} 
-              onChangeText={setSubject} 
-              placeholder="Betreff"
-            />
-          </View>
-
-          <TextInput 
-            style={styles.bodyInput} 
-            value={body} 
-            onChangeText={setBody} 
-            multiline 
-            placeholder="Schreibe deine Nachricht hier..."
-            textAlignVertical="top"
-          />
-
-          <View style={styles.footer}>
-            <View style={styles.attachmentList}>
-              {attachments.map((att, index) => (
-                <View key={index} style={styles.attachmentChip}>
-                  <Feather name="file" size={14} color={Colors.textSecondary} />
-                  <Text style={styles.attachmentChipText} numberOfLines={1}>{att.file_name}</Text>
-                  <TouchableOpacity onPress={() => removeAttachment(index)}>
-                    <Feather name="x" size={14} color={Colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-
-            <TouchableOpacity 
-              style={styles.attachBtn} 
-              onPress={handlePickDocument}
-              disabled={isUploading}
-            >
-              {isUploading ? (
-                <ActivityIndicator size="small" color={Colors.primary} />
-              ) : (
-                <Feather name="paperclip" size={20} color={Colors.primary} />
-              )}
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity onPress={() => setShowBcc(!showBcc)} style={{ paddingLeft: Spacing.sm }}>
+            <Text style={{ fontSize: FontSize.xs, color: Colors.info }}>Bcc</Text>
+          </TouchableOpacity>
         </View>
-    </SafeAreaView>
 
+        {showBcc && (
+          <View style={styles.inputRow}>
+            <Text style={styles.label}>Bcc:</Text>
+            <View style={{ flex: 1 }}>
+              <TextInput
+                style={[styles.input, invalidBcc.length > 0 && { color: Colors.error }]}
+                value={bcc}
+                onChangeText={onBccChange}
+                placeholder="blindkopie@beispiel.de"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+              />
+              {invalidBcc.length > 0 && (
+                <Text style={styles.validationHint}>{invalidBcc.join(', ')}</Text>
+              )}
+            </View>
+          </View>
+        )}
+
+        <View style={styles.inputRow}>
+          <Text style={styles.label}>Betreff:</Text>
+          <TextInput
+            style={styles.input}
+            value={subject}
+            onChangeText={onSubjectChange}
+            placeholder="Betreff"
+          />
+        </View>
+
+          <TextInput
+          style={styles.bodyInput}
+          value={body}
+          onChangeText={onBodyChange}
+          multiline
+          placeholder="Schreibe deine Nachricht hier..."
+          textAlignVertical="top"
+        />
+
+        {missingRefs.length > 0 && (
+          <View style={styles.warningBar}>
+            <Feather name="alert-triangle" size={14} color={Colors.warning} />
+            <Text style={styles.warningText}>{missingRefs[0]}</Text>
+          </View>
+        )}
+
+        <View style={styles.footer}>
+          <View style={styles.attachmentList}>
+            {attachments.map((att, index) => (
+              <View key={index} style={styles.attachmentChip}>
+                <Feather name="file" size={14} color={Colors.textSecondary} />
+                <Text style={styles.attachmentChipText} numberOfLines={1}>{att.file_name}</Text>
+                {(uploadProgress[att.file_name] ?? 100) < 100 && (
+                  <ActivityIndicator size="small" color={Colors.info} />
+                )}
+                <TouchableOpacity onPress={() => removeAttachment(index)}>
+                  <Feather name="x" size={14} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={styles.attachBtn}
+            onPress={handlePickDocument}
+            disabled={isUploading}
+          >
+            {isUploading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Feather name="paperclip" size={20} color={Colors.primary} />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+
+  const senderPickerModal = (
     <Modal visible={showSenderPicker} transparent animationType="fade">
       <TouchableOpacity
         style={styles.pickerOverlay}
@@ -421,22 +575,23 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
       >
         <View style={styles.pickerContainer}>
           <Text style={styles.pickerTitle}>Absender wählen</Text>
-          {senderAliases.map((alias, index) => (
-            <TouchableOpacity
-              key={alias.email_address}
-              style={[styles.pickerOption, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionActive]}
-              onPress={() => { setSenderAddress(alias.name && alias.name !== 'Standard' ? `${alias.name} <${alias.email_address}>` : alias.email_address); setShowSenderPicker(false); }}
-            >
-              <Text style={[styles.pickerOptionText, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionTextActive]} numberOfLines={1}>
-                {alias.name && alias.name !== 'Standard' ? `${alias.name} <${alias.email_address}>` : alias.email_address}
-              </Text>
-              {extractEmail(senderAddress) === alias.email_address && <Feather name="check" size={16} color={Colors.primary} />}
-            </TouchableOpacity>
-          ))}
+          <View style={{ maxHeight: 300 }}>
+            {senderAliases.map((alias) => (
+              <TouchableOpacity
+                key={alias.email_address}
+                style={[styles.pickerOption, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionActive]}
+                onPress={() => { setSenderAddress(formatSender(alias, userSigSettings?.display_name)); setShowSenderPicker(false); }}
+              >
+                <Text style={[styles.pickerOptionText, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionTextActive]} numberOfLines={1}>
+                  {formatSender(alias, userSigSettings?.display_name)}
+                </Text>
+                {extractEmail(senderAddress) === alias.email_address && <Feather name="check" size={16} color={Colors.primary} />}
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </TouchableOpacity>
     </Modal>
-    </>
   );
 
   const macHeader = (
@@ -456,9 +611,9 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   if (!visible) return null;
 
   if (isDesktop) {
-    return (
-      <DraggableWindow 
-        initialWidth={900} 
+    return (<>
+      <DraggableWindow
+        initialWidth={900}
         initialHeight={600}
         headerComponent={macHeader}
       >
@@ -468,11 +623,11 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           </View>
           <View style={styles.desktopRight}>
             {sourceEmail ? (
-              <ChatFeed 
-                emailId={sourceEmail.id} 
-                emails={[sourceEmail]} 
-                inboxId={inboxId} 
-                threadId={sourceEmail.thread_id || sourceEmail.id} 
+              <ChatFeed
+                emailId={sourceEmail.id}
+                emails={[sourceEmail]}
+                inboxId={inboxId}
+                threadId={sourceEmail.thread_id || sourceEmail.id}
                 onEmailStatusChange={() => {}}
                 headerComponent={
                   <View style={{ padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight }}>
@@ -488,12 +643,14 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           </View>
         </View>
       </DraggableWindow>
-    );
+      {senderPickerModal}
+    </> );
   }
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       {composerContent}
+      {senderPickerModal}
     </Modal>
   );
 }
@@ -511,6 +668,14 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+  },
+  headerCenter: {
+    alignItems: 'center',
+  },
+  saveStatus: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    marginTop: 2,
   },
   closeBtn: {
     padding: Spacing.xs,
@@ -530,7 +695,7 @@ const styles = StyleSheet.create({
   },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
     paddingVertical: Spacing.sm,
@@ -539,12 +704,18 @@ const styles = StyleSheet.create({
     width: 60,
     color: Colors.textSecondary,
     fontWeight: FontWeight.medium,
+    paddingTop: 6,
   },
   input: {
     flex: 1,
     fontSize: FontSize.md,
     color: Colors.text,
-    padding: 0, // override default padding
+    padding: 2,
+  },
+  validationHint: {
+    fontSize: FontSize.xs,
+    color: Colors.error,
+    marginTop: 2,
   },
   bodyInput: {
     flex: 1,
@@ -575,11 +746,26 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: BorderRadius.sm,
     gap: 4,
-    maxWidth: 150,
+    maxWidth: 180,
   },
   attachmentChipText: {
     fontSize: 12,
     color: Colors.text,
+    flex: 1,
+  },
+  warningBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    backgroundColor: Colors.warning + '15',
+    borderRadius: BorderRadius.sm,
+    marginTop: Spacing.xs,
+  },
+  warningText: {
+    fontSize: FontSize.xs,
+    color: Colors.warning,
     flex: 1,
   },
   attachBtn: {
