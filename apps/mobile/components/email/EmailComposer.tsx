@@ -75,7 +75,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const { signatures } = useSignatures();
   const [userSigSettings, setUserSigSettings] = useState<any>(null);
   const [senderAddress, setSenderAddress] = useState('');
-  const [senderAliases, setSenderAliases] = useState<{ email_address: string; name?: string }[]>([]);
+  const [senderAliases, setSenderAliases] = useState<{ email_address: string; name?: string; inboxName: string; inboxId: string }[]>([]);
   const [showSenderPicker, setShowSenderPicker] = useState(false);
 
   const activeInboxId = inboxId || (inboxes && inboxes.length > 0 ? inboxes[0].id : '');
@@ -188,26 +188,49 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   }, [activeInboxId, visible]);
 
   useEffect(() => {
-    if (!activeInboxId || !visible) return;
+    if (!inboxes.length || !visible) return;
     (async () => {
-      const activeInbox = inboxes.find(i => i.id === activeInboxId);
-      const inboxEmail = activeInbox?.email_address || '';
-      const inboxName = activeInbox?.name && activeInbox.name !== inboxEmail ? activeInbox.name : undefined;
       const { data: { user } } = await supabase.auth.getUser();
-      const { data } = await supabase
+      if (!user) return;
+      const inboxIds = inboxes.map(i => i.id);
+      const { data: aliasesData } = await supabase
         .from('inbox_aliases')
-        .select('email_address, name, user_id')
-        .eq('inbox_id', activeInboxId);
-      const allAliases = data || [];
-      const aliases = allAliases.filter(a => !a.user_id || a.user_id === user?.id);
-      setSenderAliases([{ email_address: inboxEmail, name: inboxName || 'Standard' }, ...aliases.filter(a => a.email_address !== inboxEmail)]);
+        .select('email_address, name, user_id, inbox_id')
+        .in('inbox_id', inboxIds);
+      const allAliases = aliasesData || [];
+      const userAliases = allAliases.filter(a => !a.user_id || a.user_id === user.id);
+
+      const result: { email_address: string; name?: string; inboxName: string; inboxId: string }[] = [];
+      const seen = new Set<string>();
+      for (const inbox of inboxes) {
+        const inboxKey = inbox.email_address.toLowerCase();
+        if (!seen.has(inboxKey)) {
+          seen.add(inboxKey);
+          const inboxLabel = inbox.name && inbox.name !== inbox.email_address ? inbox.name : undefined;
+          result.push({ email_address: inbox.email_address, name: inboxLabel, inboxName: inbox.name, inboxId: inbox.id });
+        }
+        for (const alias of userAliases) {
+          if (alias.inbox_id === inbox.id) {
+            const key = alias.email_address.toLowerCase();
+            if (!seen.has(key)) {
+              seen.add(key);
+              result.push({ email_address: alias.email_address, name: alias.name || undefined, inboxName: inbox.name, inboxId: inbox.id });
+            }
+          }
+        }
+      }
+      setSenderAliases(result);
+
       const currentEmail = extractEmail(senderAddress);
-      if (!senderAddress || (!aliases.some(a => a.email_address === currentEmail) && currentEmail !== inboxEmail)) {
-        const displayName = userSigSettings?.display_name || inboxName;
-        setSenderAddress(displayName ? `${displayName} <${inboxEmail}>` : inboxEmail);
+      const stillValid = result.some(a => a.email_address === currentEmail);
+      if (!senderAddress || !stillValid) {
+        const activeInbox = inboxes.find(i => i.id === activeInboxId);
+        const primary = activeInbox || inboxes[0];
+        const displayName = userSigSettings?.display_name || (primary?.name !== primary?.email_address ? primary?.name : undefined);
+        setSenderAddress(displayName ? `${displayName} <${primary?.email_address}>` : primary?.email_address || '');
       }
     })();
-  }, [activeInboxId, visible, userSigSettings]);
+  }, [inboxes, visible, userSigSettings]);
 
   // Signature on open
   useEffect(() => {
@@ -667,18 +690,27 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         <View style={styles.pickerContainer}>
           <Text style={styles.pickerTitle}>Absender wählen</Text>
           <View style={{ maxHeight: 300 }}>
-            {senderAliases.map((alias) => (
-              <TouchableOpacity
-                key={alias.email_address}
-                style={[styles.pickerOption, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionActive]}
-                onPress={() => { setSenderAddress(formatSender(alias, userSigSettings?.display_name)); setShowSenderPicker(false); }}
-              >
-                <Text style={[styles.pickerOptionText, extractEmail(senderAddress) === alias.email_address && styles.pickerOptionTextActive]} numberOfLines={1}>
-                  {formatSender(alias, userSigSettings?.display_name)}
-                </Text>
-                {extractEmail(senderAddress) === alias.email_address && <Feather name="check" size={16} color={Colors.primary} />}
-              </TouchableOpacity>
-            ))}
+            {senderAliases.map((alias, i) => {
+              const isSelected = extractEmail(senderAddress) === alias.email_address;
+              const formatted = alias.name ? `${alias.name} <${alias.email_address}>` : alias.email_address;
+              return (
+                <TouchableOpacity
+                  key={alias.email_address}
+                  style={[styles.pickerOption, isSelected && styles.pickerOptionActive]}
+                  onPress={() => { setSenderAddress(formatted); setShowSenderPicker(false); }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextActive]} numberOfLines={1}>
+                      {formatted}
+                    </Text>
+                    <Text style={{ fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 }}>
+                      {alias.inboxName}
+                    </Text>
+                  </View>
+                  {isSelected && <Feather name="check" size={16} color={Colors.primary} />}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       </TouchableOpacity>
