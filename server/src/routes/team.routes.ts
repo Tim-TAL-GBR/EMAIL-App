@@ -545,3 +545,44 @@ teamRouter.get("/unassigned-users", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---------------------------------------------------------------------------
+// DELETE /api/teams/unassigned-users/:userId – Delete an unassigned user
+// ---------------------------------------------------------------------------
+teamRouter.delete("/unassigned-users/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const supabase = getSupabaseAdmin();
+
+    const { data: membership } = await supabase
+      .from("team_members")
+      .select("user_id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (membership) {
+      res.status(400).json({ error: "Benutzer ist einem Team zugeordnet und kann nicht gelöscht werden." });
+      return;
+    }
+
+    const { error: profileErr } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("id", userId);
+
+    if (profileErr) {
+      res.status(500).json({ error: profileErr.message });
+      return;
+    }
+
+    const { error: authErr } = await supabase.auth.admin.deleteUser(userId);
+    if (authErr) {
+      console.warn("Could not delete auth user:", authErr.message);
+    }
+
+    res.json({ message: "Benutzer erfolgreich gelöscht" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});

@@ -134,6 +134,16 @@ export default function UsersSettingsScreen() {
     }
   };
 
+  const handleDeleteUser = async (userId: string, name: string) => {
+    try {
+      await apiRequest(`/api/teams/unassigned-users/${userId}`, 'DELETE');
+      Alert.alert('Erfolg', `${name} wurde gelöscht.`);
+      fetchUnassignedUsers();
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    }
+  };
+
   const loadTeams = async () => {
     try {
       const data = await apiRequest('/api/teams');
@@ -414,7 +424,7 @@ export default function UsersSettingsScreen() {
               <View style={styles.tableHeader}>
                 <Text style={[styles.tableHeaderText, { flex: 2 }]}>Name</Text>
                 <Text style={[styles.tableHeaderText, { flex: 2 }]}>E-Mail</Text>
-                <Text style={[styles.tableHeaderText, { width: 120 }]}></Text>
+                <Text style={[styles.tableHeaderText, { width: 180 }]}></Text>
               </View>
               {loadingUnassigned ? (
                 <ActivityIndicator style={{ marginTop: Spacing.xl }} />
@@ -433,9 +443,19 @@ export default function UsersSettingsScreen() {
                     </View>
                   </View>
                   <Text style={[styles.tableCellSubtitle, { flex: 2 }]}>{user.email}</Text>
-                  <View style={{ width: 120, alignItems: 'flex-end' }}>
+                  <View style={{ width: 180, flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm }}>
                     <TouchableOpacity onPress={() => { setAssigningUser(user); setShowAddToTeamModal(true); }}>
                       <Text style={styles.roleChip}>Hinzufügen →</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => {
+                      const name = user.display_name || user.email;
+                      const confirmed = typeof window !== 'undefined'
+                        ? window.confirm(`Soll ${name} wirklich gelöscht werden? Diese Aktion kann nicht rückgängig gemacht werden.`)
+                        : true;
+                      if (!confirmed) return;
+                      handleDeleteUser(user.id, name);
+                    }}>
+                      <Text style={[styles.roleChip, { color: Colors.error }]}>Löschen</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
