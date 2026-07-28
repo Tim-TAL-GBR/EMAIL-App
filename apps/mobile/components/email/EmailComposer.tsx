@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, Text, ActivityIndicator, Alert, Platform, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, Text, ActivityIndicator, Alert, Platform, useWindowDimensions, ScrollView } from 'react-native';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius, FontFamily } from '../../lib/constants';
 import { Button } from '../ui/Button';
 import { supabase } from '../../lib/supabase';
@@ -92,6 +92,9 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const [attachments, setAttachments] = useState<any[]>([]);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [isUploading, setIsUploading] = useState(false);
+
+  const [templates, setTemplates] = useState<{ id: string; name: string; subject?: string; body: string }[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null);
 
   // Autocomplete: collect all known email addresses from loaded threads
@@ -255,6 +258,23 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
       }
     }
   }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings]);
+
+  // Fetch templates
+  useEffect(() => {
+    if (!visible) return;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${API_URL}/api/templates`, {
+          headers: { 'Authorization': `Bearer ${session?.access_token}` },
+        });
+        const json = await res.json();
+        if (json.templates) setTemplates(json.templates);
+      } catch (e) {
+        console.warn('[EmailComposer] Failed to fetch templates:', e);
+      }
+    })();
+  }, [visible]);
 
   // Auto-save with indicator
   useEffect(() => {
@@ -666,6 +686,12 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
           <TouchableOpacity
             style={styles.attachBtn}
+            onPress={() => setShowTemplatePicker(true)}
+          >
+            <Feather name="file-text" size={18} color={Colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.attachBtn}
             onPress={handlePickDocument}
             disabled={isUploading}
           >
@@ -678,6 +704,39 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         </View>
       </View>
     </SafeAreaView>
+  );
+
+  const templatePickerModal = templates.length > 0 && (
+    <Modal visible={showTemplatePicker} transparent animationType="fade">
+      <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowTemplatePicker(false)}>
+        <View style={styles.pickerContainer} onStartShouldSetResponder={() => true}>
+          <Text style={styles.pickerTitle}>Vorlage auswählen</Text>
+          <ScrollView style={{ maxHeight: 320 }}>
+            {templates.map(tpl => (
+              <TouchableOpacity
+                key={tpl.id}
+                style={styles.pickerOption}
+                onPress={() => {
+                  if (tpl.subject) setSubject(tpl.subject);
+                  setBody(tpl.body);
+                  setShowTemplatePicker(false);
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pickerOptionText} numberOfLines={1}>{tpl.name}</Text>
+                  {tpl.subject && (
+                    <Text style={{ fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 }} numberOfLines={1}>
+                      {tpl.subject}
+                    </Text>
+                  )}
+                </View>
+                <Feather name="chevron-right" size={14} color={Colors.textTertiary} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </TouchableOpacity>
+    </Modal>
   );
 
   const senderPickerModal = (
@@ -767,6 +826,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         </View>
       </DraggableWindow>
       {senderPickerModal}
+      {templatePickerModal}
     </> );
   }
 
@@ -774,6 +834,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       {composerContent}
       {senderPickerModal}
+      {templatePickerModal}
     </Modal>
   );
 }
