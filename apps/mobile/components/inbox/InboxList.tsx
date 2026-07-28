@@ -273,7 +273,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   const openComposerForDraft = (draft: any) => {
     openComposer({
       mode: draft.in_reply_to ? 'reply' : 'new',
-      inboxId: draft.inbox_id || (activeContextType === 'private_inbox' ? activeContextId! : ''),
+      inboxId: draft.inbox_id || (inboxIds.length > 0 ? inboxIds[0] : ''),
       sourceEmail: draft ? { thread_id: draft.thread_id, message_id: draft.in_reply_to } as any : undefined,
       draftToResume: draft
     });
@@ -391,7 +391,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
           title="Neue E-Mail" 
           onPress={() => openComposer({
             mode: 'new',
-            inboxId: activeContextType === 'private_inbox' ? activeContextId! : '',
+            inboxId: inboxIds.length > 0 ? inboxIds[0] : '',
           })} 
           style={styles.composeBtnInner}
         />
