@@ -80,6 +80,8 @@ export default function UsersSettingsScreen() {
 
   // Role dropdown state
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [roleModalMember, setRoleModalMember] = useState<Member | null>(null);
 
   // Unassigned users state
   const [unassignedUsers, setUnassignedUsers] = useState<any[]>([]);
@@ -341,6 +343,48 @@ export default function UsersSettingsScreen() {
         </View>
       </Modal>
 
+      {/* Role Change Modal */}
+      <Modal visible={showRoleModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Rolle ändern</Text>
+              <TouchableOpacity onPress={() => { setShowRoleModal(false); setRoleModalMember(null); }}>
+                <Text style={styles.closeIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalBody}>
+              <Text style={styles.modalLabel}>Benutzer</Text>
+              <Text style={[styles.tableCellTextBold, { marginBottom: Spacing.md }]}>{roleModalMember?.display_name || 'Unbekannt'}</Text>
+              <Text style={[styles.modalLabel, { marginTop: Spacing.md }]}>Neue Rolle</Text>
+              {(['member', 'admin', 'owner'] as const).map(r => (
+                <TouchableOpacity
+                  key={r}
+                  style={[styles.roleOption, roleModalMember?.role === r && styles.roleOptionActive, { marginBottom: Spacing.sm }]}
+                  onPress={() => {
+                    if (roleModalMember && roleModalMember.role !== r) {
+                      handleChangeRole(roleModalMember.id, r);
+                    }
+                    setShowRoleModal(false);
+                    setRoleModalMember(null);
+                  }}
+                >
+                  <Text style={[styles.roleOptionText, roleModalMember?.role === r && styles.roleOptionTextActive]}>
+                    {ROLE_LABELS[r]}
+                    {roleModalMember?.role === r && ' (aktuell)'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.btnSecondary} onPress={() => { setShowRoleModal(false); setRoleModalMember(null); }}>
+                <Text style={styles.btnSecondaryText}>Abbrechen</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.sidebarContent}>
@@ -506,28 +550,11 @@ export default function UsersSettingsScreen() {
 
                   <View style={{ width: 100 }}>
                     {canManage && !member.isMe ? (
-                      <View>
-                        <TouchableOpacity
-                          onPress={() => setEditingMemberId(editingMemberId === member.id ? null : member.id)}
-                        >
-                          <Text style={styles.roleChip}>{ROLE_LABELS[member.role] || member.role} ⌄</Text>
-                        </TouchableOpacity>
-                        {editingMemberId === member.id && (
-                          <View style={styles.roleDropdown}>
-                            {(['member', 'admin', 'owner'] as const).map(r => (
-                              <TouchableOpacity
-                                key={r}
-                                style={styles.roleDropdownItem}
-                                onPress={() => handleChangeRole(member.id, r)}
-                              >
-                                <Text style={[styles.roleDropdownText, member.role === r && { color: Colors.primary, fontWeight: 'bold' }]}>
-                                  {ROLE_LABELS[r]}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        )}
-                      </View>
+                      <TouchableOpacity
+                        onPress={() => { setRoleModalMember(member); setShowRoleModal(true); }}
+                      >
+                        <Text style={styles.roleChip}>{ROLE_LABELS[member.role] || member.role} ⌄</Text>
+                      </TouchableOpacity>
                     ) : (
                       <Text style={styles.tableCellText}>{ROLE_LABELS[member.role] || member.role}</Text>
                     )}

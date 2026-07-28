@@ -14,6 +14,7 @@ interface Team {
   slug: string;
   myRole: string;
   memberCount?: number;
+  parent_id: string | null;
 }
 
 interface Member {
@@ -21,6 +22,7 @@ interface Member {
   email: string;
   display_name: string | null;
   role: string;
+  isMe?: boolean;
 }
 
 async function apiRequest(path: string, method = 'GET', body?: object) {
@@ -57,9 +59,18 @@ export default function TeamsSettingsScreen() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+
+  // Add member modal
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [allProfiles, setAllProfiles] = useState<any[]>([]);
+  const [addMemberRole, setAddMemberRole] = useState('member');
+  const [isAdding, setIsAdding] = useState(false);
 
   const selectedTeam = teams.find(t => t.id === selectedTeamId);
   const canManage = selectedTeam && ['owner', 'admin'].includes(selectedTeam.myRole);
+  const orgs = teams.filter(t => !t.parent_id);
+  const subTeams = teams.filter(t => !!t.parent_id);
 
   useEffect(() => { loadTeams(); }, []);
   useEffect(() => { if (selectedTeamId) loadMembers(selectedTeamId); }, [selectedTeamId]);
@@ -68,7 +79,8 @@ export default function TeamsSettingsScreen() {
     try {
       const data = await apiRequest('/api/teams');
       setTeams(data);
-      if (data.length > 0) setSelectedTeamId(data[0].id);
+      const firstSubTeam = data.find((t: Team) => !!t.parent_id);
+      if (firstSubTeam) setSelectedTeamId(firstSubTeam.id);
     } catch (e: any) {
       Alert.alert('Fehler', e.message);
     } finally {
@@ -92,7 +104,10 @@ export default function TeamsSettingsScreen() {
     if (!newTeamName.trim()) return;
     setIsCreating(true);
     try {
-      const team = await apiRequest('/api/teams', 'POST', { name: newTeamName.trim() });
+      const team = await apiRequest('/api/teams', 'POST', {
+        name: newTeamName.trim(),
+        ...(selectedOrgId ? { parent_id: selectedOrgId } : {}),
+      });
       setTeams(prev => [...prev, team]);
       setSelectedTeamId(team.id);
       setShowCreateModal(false);
@@ -109,26 +124,64 @@ export default function TeamsSettingsScreen() {
       Alert.alert('Keine Berechtigung', 'Nur der Eigentümer kann ein Team löschen.');
       return;
     }
-    Alert.alert(
-      'Team löschen',
-      `Soll das Team "${team.name}" wirklich gelöscht werden? Dieser Schritt kann nicht rückgängig gemacht werden.`,
-      [
-        { text: 'Abbrechen', style: 'cancel' },
-        {
-          text: 'Löschen', style: 'destructive',
-          onPress: async () => {
-            try {
-              await apiRequest(`/api/teams/${team.id}`, 'DELETE');
-              const updated = teams.filter(t => t.id !== team.id);
-              setTeams(updated);
-              setSelectedTeamId(updated.length > 0 ? updated[0].id : null);
-            } catch (e: any) {
-              Alert.alert('Fehler', e.message);
-            }
-          }
-        }
-      ]
+    const confirmed = window.confirm(
+      `Team "${team.name}" wirklich löschen?\n\nDieser Schritt kann nicht rückgängig gemacht werden.`
     );
+    if (confirmed) {
+      (async () => {
+        try {
+          await apiRequest(`/api/teams/${team.id}`, 'DELETE');
+          const updated = teams.filter(t => t.id !== team.id);
+          setTeams(updated);
+          setSelectedTeamId(updated.length > 0 ? updated[0].id : null);
+        } catch (e: any) {
+          Alert.alert('Fehler', e.message);
+        }
+      })();
+    }
+  };
+
+  const handleShowAddMember = async () => {
+    if (!selectedTeamId) return;
+    setShowAddMemberModal(true);
+    try {
+      const available = await apiRequest(`/api/teams/${selectedTeamId}/available-users`);
+      setAllProfiles(available);
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
+  const handleAddMember = async (user: any) => {
+    if (!selectedTeamId) return;
+    setIsAdding(true);
+    try {
+      await apiRequest(`/api/teams/${selectedTeamId}/members/invite`, 'POST', {
+        email: user.email,
+        role: addMemberRole,
+      });
+      setAddMemberRole('member');
+      setShowAddMemberModal(false);
+      loadMembers(selectedTeamId);
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleRemoveMember = (member: Member) => {
+    const confirmed = window.confirm(`${member.display_name || member.email} aus dem Team entfernen?`);
+    if (confirmed && selectedTeamId) {
+      (async () => {
+        try {
+          await apiRequest(`/api/teams/${selectedTeamId}/members/${member.id}`, 'DELETE');
+          loadMembers(selectedTeamId);
+        } catch (e: any) {
+          Alert.alert('Fehler', e.message);
+        }
+      })();
+    }
   };
 
   return (
@@ -147,12 +200,34 @@ export default function TeamsSettingsScreen() {
               <Text style={styles.modalLabel}>Teamname</Text>
               <TextInput
                 style={styles.modalInput}
-                placeholder="z.B. Support, Buchhaltung..."
+                placeholder="z.B. Support, Vertrieb, Buchhaltung..."
                 placeholderTextColor={Colors.textTertiary}
                 value={newTeamName}
                 onChangeText={setNewTeamName}
                 autoFocus
               />
+              {orgs.length > 0 && (
+                <>
+                  <Text style={[styles.modalLabel, { marginTop: Spacing.md }]}>Organisation (optional)</Text>
+                  <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                    <TouchableOpacity
+                      style={[styles.orgChip, !selectedOrgId && styles.orgChipActive]}
+                      onPress={() => setSelectedOrgId(null)}
+                    >
+                      <Text style={[styles.orgChipText, !selectedOrgId && styles.orgChipTextActive]}>Keine Organisation</Text>
+                    </TouchableOpacity>
+                    {orgs.map((org) => (
+                      <TouchableOpacity
+                        key={org.id}
+                        style={[styles.orgChip, selectedOrgId === org.id && styles.orgChipActive]}
+                        onPress={() => setSelectedOrgId(org.id)}
+                      >
+                        <Text style={[styles.orgChipText, selectedOrgId === org.id && styles.orgChipTextActive]}>{org.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </>
+              )}
               <Text style={styles.modalHint}>
                 Teams helfen dir, Mitglieder per @Erwähnung in Kommentaren zu benachrichtigen.
               </Text>
@@ -173,15 +248,82 @@ export default function TeamsSettingsScreen() {
         </View>
       </Modal>
 
+      {/* Add Member Modal */}
+      <Modal visible={showAddMemberModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Mitglied hinzufügen</Text>
+              <TouchableOpacity onPress={() => setShowAddMemberModal(false)}>
+                <Text style={styles.closeIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalBody}>
+              <Text style={[styles.modalLabel, { marginBottom: Spacing.md }]}>Rolle</Text>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg }}>
+                {[
+                  { value: 'member', label: 'Mitglied' },
+                  { value: 'admin', label: 'Admin' },
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.orgChip, addMemberRole === opt.value && styles.orgChipActive]}
+                    onPress={() => setAddMemberRole(opt.value)}
+                  >
+                    <Text style={[styles.orgChipText, addMemberRole === opt.value && styles.orgChipTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.modalLabel}>Nutzer auswählen</Text>
+              <ScrollView style={{ maxHeight: 280 }}>
+                {allProfiles.length === 0 ? (
+                  <Text style={styles.emptyText}>Keine weiteren Nutzer verfügbar</Text>
+                ) : (
+                  allProfiles.map((user: any) => (
+                    <TouchableOpacity
+                      key={user.id}
+                      style={styles.userPickerRow}
+                      onPress={() => handleAddMember(user)}
+                      disabled={isAdding}
+                    >
+                      <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(user.id) }]}>
+                        <Text style={styles.userAvatarText}>
+                          {(user.display_name || user.email || '??').substring(0, 2).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cellBold}>{user.display_name || 'Unbekannt'}</Text>
+                        <Text style={styles.cellSub}>{user.email}</Text>
+                      </View>
+                      <Text style={{ color: Colors.primary, fontFamily: FontFamily, fontSize: FontSize.sm, fontWeight: 'bold' }}>
+                        Hinzufügen
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </ScrollView>
+            </View>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowAddMemberModal(false)}>
+                <Text style={styles.btnSecondaryText}>Schließen</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.sidebarContent}>
           <ScrollView>
             {loading ? (
               <ActivityIndicator style={{ marginTop: Spacing.xl }} />
-            ) : teams.length === 0 ? (
+            ) : subTeams.length === 0 ? (
               <Text style={styles.sidebarEmptyText}>Noch keine Teams vorhanden</Text>
-            ) : teams.map(team => (
+            ) : subTeams.map(team => (
               <TouchableOpacity
                 key={team.id}
                 style={selectedTeamId === team.id ? styles.sidebarItemActive : styles.sidebarItem}
@@ -195,14 +337,17 @@ export default function TeamsSettingsScreen() {
                     {team.name}
                   </Text>
                   <Text style={selectedTeamId === team.id ? styles.sidebarItemSubtitleActive : styles.sidebarItemSubtitle}>
-                    {team.myRole === 'owner' ? 'Inhaber' : team.myRole === 'admin' ? 'Admin' : 'Mitglied'}
+                    {team.parent_id ? orgs.find(o => o.id === team.parent_id)?.name || 'Team' : team.myRole === 'owner' ? 'Inhaber' : team.myRole === 'admin' ? 'Admin' : 'Mitglied'}
                   </Text>
                 </View>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
-        <TouchableOpacity style={styles.sidebarFooter} onPress={() => setShowCreateModal(true)}>
+        <TouchableOpacity
+          style={styles.sidebarFooter}
+          onPress={() => orgs.length > 0 ? setShowCreateModal(true) : Alert.alert('Hinweis', 'Erstelle zuerst eine Organisation unter "Organisationen".')}
+        >
           <Text style={styles.sidebarFooterText}>+ Team erstellen</Text>
         </TouchableOpacity>
       </View>
@@ -218,9 +363,11 @@ export default function TeamsSettingsScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.mainHeaderTitle}>{selectedTeam.name}</Text>
-                  <Text style={styles.mainHeaderSubtitle}>Team</Text>
+                  <Text style={styles.mainHeaderSubtitle}>
+                    {selectedTeam.parent_id ? `Team in ${orgs.find(o => o.id === selectedTeam.parent_id)?.name || 'Organisation'}` : 'Team'}
+                  </Text>
                 </View>
-                {selectedTeam.myRole === 'owner' && (
+                {(selectedTeam.myRole === 'owner' || (selectedTeam.parent_id && canManage)) && (
                   <TouchableOpacity onPress={() => handleDeleteTeam(selectedTeam)}>
                     <Text style={styles.deleteBtn}>Team löschen</Text>
                   </TouchableOpacity>
@@ -238,10 +385,17 @@ export default function TeamsSettingsScreen() {
 
               <Text style={styles.sectionTitle}>Mitglieder ({loadingMembers ? '...' : members.length})</Text>
 
+              {canManage && (
+                <TouchableOpacity style={styles.inviteBtn} onPress={handleShowAddMember}>
+                  <Text style={styles.inviteBtnText}>+ Hinzufügen</Text>
+                </TouchableOpacity>
+              )}
+
               <View style={styles.table}>
                 <View style={styles.tableHeaderRow}>
                   <Text style={[styles.tableHeaderText, { flex: 2 }]}>Name</Text>
-                  <Text style={[styles.tableHeaderText, { width: 120 }]}>Rolle</Text>
+                  <Text style={[styles.tableHeaderText, { width: 100 }]}>Rolle</Text>
+                  {canManage && <Text style={[styles.tableHeaderText, { width: 80 }]}></Text>}
                 </View>
 
                 {loadingMembers ? (
@@ -261,11 +415,20 @@ export default function TeamsSettingsScreen() {
                         {member.display_name && <Text style={styles.cellSub}>{member.email}</Text>}
                       </View>
                     </View>
-                    <View style={{ width: 120 }}>
+                    <View style={{ width: 100 }}>
                       <Text style={styles.cellText}>
                         {member.role === 'owner' ? 'Inhaber' : member.role === 'admin' ? 'Admin' : 'Mitglied'}
                       </Text>
                     </View>
+                    {canManage && (
+                      <View style={{ width: 80, alignItems: 'flex-end' }}>
+                        {!member.isMe && member.role !== 'owner' && (
+                          <TouchableOpacity onPress={() => handleRemoveMember(member)}>
+                            <Text style={styles.deleteLink}>Entfernen</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                   </View>
                 ))}
               </View>
@@ -276,10 +439,11 @@ export default function TeamsSettingsScreen() {
             {loading ? <ActivityIndicator /> : (
               <>
                 <Text style={styles.emptyStateTitle}>Noch keine Teams</Text>
-                <Text style={styles.emptyStateText}>Erstelle dein erstes Team, um Mitglieder zu verwalten.</Text>
-                <TouchableOpacity style={[styles.btnPrimary, { marginTop: Spacing.lg }]} onPress={() => setShowCreateModal(true)}>
-                  <Text style={styles.btnPrimaryText}>Team erstellen</Text>
-                </TouchableOpacity>
+                <Text style={styles.emptyStateText}>
+                  {orgs.length > 0
+                    ? `Erstelle ein Team innerhalb einer Organisation.`
+                    : `Erstelle zuerst eine Organisation unter "Organisationen", dann kannst du Teams erstellen.`}
+                </Text>
               </>
             )}
           </View>
@@ -346,4 +510,12 @@ const styles = StyleSheet.create({
   btnPrimaryText: { fontFamily: FontFamily, fontSize: FontSize.sm, color: '#FFF', fontWeight: FontWeight.bold },
   btnSecondary: { paddingVertical: Spacing.sm, paddingHorizontal: Spacing.xl, borderRadius: 6, borderWidth: 1, borderColor: Colors.border },
   btnSecondaryText: { fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.text },
+  orgChip: { paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, borderRadius: 6, borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.xs },
+  orgChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  orgChipText: { fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.text },
+  orgChipTextActive: { color: '#FFF', fontWeight: 'bold' },
+  inviteBtn: { alignSelf: 'flex-start', paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, borderRadius: 6, borderWidth: 1, borderColor: Colors.primary, marginBottom: Spacing.md },
+  inviteBtnText: { fontFamily: FontFamily, fontSize: FontSize.sm, fontWeight: 'bold', color: Colors.primary },
+  deleteLink: { fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.error },
+  userPickerRow: { flexDirection: 'row', alignItems: 'center', padding: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
 });

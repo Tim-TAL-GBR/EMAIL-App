@@ -40,6 +40,11 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
       return inboxes
         .filter(i => i.type === 'shared' && i.team?.id === activeContextId)
         .map(i => i.id);
+    } else if (activeContextType === 'org') {
+      // All shared inboxes belonging to any team within this org
+      return inboxes
+        .filter(i => i.type === 'shared' && i.team)
+        .map(i => i.id);
     } else if (activeContextType === 'private_inbox') {
       return activeContextId ? [activeContextId] : [];
     } else if (activeContextType === 'global_inbox' || activeContextType === 'label') {
@@ -164,6 +169,8 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
         return false;
       }
     }
+
+    // For 'org' context: show all threads (no assignment filter)
 
     if (!activeFilter || activeFilter === 'all' || activeFilter === 'drafts') {
       if (searchText) {

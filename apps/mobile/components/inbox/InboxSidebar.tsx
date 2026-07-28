@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout, Shadows } from '../../lib/constants';
@@ -12,8 +12,17 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { CreateLabelModal } from './CreateLabelModal';
 import { supabase } from '../../lib/supabase';
 
+const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 interface InboxSidebarProps {
   isDesktop?: boolean;
+}
+
+interface TeamData {
+  id: string;
+  name: string;
+  myRole: string;
+  parent_id: string | null;
 }
 
 export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
@@ -32,10 +41,38 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   
   // Track which private inbox is expanded
   const [expandedPrivateInbox, setExpandedPrivateInbox] = useState<string | null>(null);
+  // Track which org is expanded
+  const [expandedOrg, setExpandedOrg] = useState<string | null>(null);
+  // Track which team filter dropdown is open
+  const [openTeamFilter, setOpenTeamFilter] = useState<string | null>(null);
+
+  // Teams from API (org + sub-teams)
+  const [allTeams, setAllTeams] = useState<TeamData[]>([]);
 
   const privateInboxes = inboxes.filter(i => i.type === 'private');
 
-  // Group shared inboxes by team
+  // Fetch teams from API
+  useEffect(() => {
+    const fetchTeams = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${API_URL}/api/teams`, {
+          headers: { 'Authorization': `Bearer ${session?.access_token}` },
+        });
+        const data = await res.json();
+        setAllTeams(data || []);
+      } catch (e) {
+        console.error('Failed to fetch teams:', e);
+      }
+    };
+    fetchTeams();
+  }, []);
+
+  // Orgs and their sub-teams
+  const orgs = allTeams.filter(t => !t.parent_id);
+  const getSubTeams = (orgId: string) => allTeams.filter(t => t.parent_id === orgId);
+
+  // Group shared inboxes by team (for labels)
   const teamsMap = new Map<string, { id: string; name: string }>();
   inboxes.forEach(inbox => {
     if (inbox.type === 'shared' && inbox.team) {
@@ -239,29 +276,74 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
         )}
 
         <View style={styles.section}>
-          <Text style={styles.subSectionTitle}>Team spaces</Text>
-          {teams.map(team => (
-            <View key={team.id} style={styles.teamSpace}>
-              <TouchableOpacity 
-                style={[styles.teamHeader, activeContextType === 'team' && activeContextId === team.id && !activeFilter && styles.filterItemActive]}
-                onPress={() => handlePress('team', team.id, 'needs_attention')}
-              >
-                <View style={[styles.teamAvatar, { backgroundColor: '#F06A6A' }]}>
-                  <Feather name="users" size={10} color="#FFF" />
-                </View>
-                <Text style={[styles.teamName, activeContextType === 'team' && activeContextId === team.id && styles.filterLabelActive]}>{team.name}</Text>
-              </TouchableOpacity>
-              {activeContextType === 'team' && activeContextId === team.id && (
-                <View style={styles.filtersContainer}>
-                  {renderFilterItem('team', team.id, 'assigned_to_me', 'Assigned to me')}
-                  {renderFilterItem('team', team.id, 'assigned_to_others', 'Assigned to others')}
-                  {renderFilterItem('team', team.id, 'done', 'Closed')}
-                  {renderFilterItem('team', team.id, 'sent', 'Sent')}
-                  {renderFilterItem('team', team.id, 'all', 'All')}
-                </View>
-              )}
-            </View>
-          ))}
+          <Text style={styles.subSectionTitle}>Organisationen</Text>
+          {orgs.map(org => {
+            const subTeams = getSubTeams(org.id);
+            const isOrgExpanded = expandedOrg === org.id || activeContextType === 'org' && activeContextId === org.id;
+            return (
+              <View key={org.id} style={styles.teamSpace}>
+                {/* Org Header */}
+                <TouchableOpacity 
+                  style={[styles.teamHeader, activeContextType === 'org' && activeContextId === org.id && !activeFilter && styles.filterItemActive]}
+                  onPress={() => {
+                    handlePress('org', org.id, 'needs_attention');
+                    setExpandedOrg(isOrgExpanded ? null : org.id);
+                  }}
+                >
+                  <Feather 
+                    name={isOrgExpanded ? "chevron-down" : "chevron-right"} 
+                    size={12} 
+                    color={Colors.textTertiary} 
+                    style={{ marginRight: 4 }}
+                  />
+                  <View style={[styles.teamAvatar, { backgroundColor: '#7B68EE' }]}>
+                    <Feather name="briefcase" size={10} color="#FFF" />
+                  </View>
+                  <Text style={[styles.teamName, activeContextType === 'org' && activeContextId === org.id && styles.filterLabelActive]}>{org.name}</Text>
+                </TouchableOpacity>
+
+                {/* Org-level filters (when org is selected) */}
+                {activeContextType === 'org' && activeContextId === org.id && (
+                  <View style={styles.filtersContainer}>
+                    {renderFilterItem('org', org.id, 'assigned_to_me', 'Zugewiesen an mich')}
+                    {renderFilterItem('org', org.id, 'assigned_to_others', 'Zugewiesen an andere')}
+                    {renderFilterItem('org', org.id, 'done', 'Abgeschlossen')}
+                    {renderFilterItem('org', org.id, 'sent', 'Gesendet')}
+                    {renderFilterItem('org', org.id, 'all', 'Alle')}
+                  </View>
+                )}
+
+                {/* Sub-teams (when org is expanded) */}
+                {isOrgExpanded && subTeams.map(team => (
+                  <View key={team.id}>
+                    <TouchableOpacity 
+                      style={[styles.teamHeader, styles.subTeamHeader, activeContextType === 'team' && activeContextId === team.id && !activeFilter && styles.filterItemActive]}
+                      onPress={() => {
+                        handlePress('team', team.id, 'needs_attention');
+                        setOpenTeamFilter(openTeamFilter === team.id ? null : team.id);
+                      }}
+                    >
+                      <View style={[styles.teamAvatar, { backgroundColor: '#F06A6A' }]}>
+                        <Feather name="users" size={10} color="#FFF" />
+                      </View>
+                      <Text style={[styles.teamName, activeContextType === 'team' && activeContextId === team.id && styles.filterLabelActive]}>{team.name}</Text>
+                    </TouchableOpacity>
+
+                    {/* Team filter dropdown */}
+                    {activeContextType === 'team' && activeContextId === team.id && (
+                      <View style={styles.filtersContainer}>
+                        {renderFilterItem('team', team.id, 'assigned_to_me', 'Zugewiesen an mich')}
+                        {renderFilterItem('team', team.id, 'assigned_to_others', 'Zugewiesen an andere')}
+                        {renderFilterItem('team', team.id, 'done', 'Abgeschlossen')}
+                        {renderFilterItem('team', team.id, 'sent', 'Gesendet')}
+                        {renderFilterItem('team', team.id, 'all', 'Alle')}
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            );
+          })}
         </View>
       </ScrollView>
 
@@ -446,6 +528,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: Spacing.sm,
     borderRadius: 6,
+  },
+  subTeamHeader: {
+    paddingLeft: Spacing.xl,
   },
   headerIcon: {
     marginRight: Spacing.sm,

@@ -22,7 +22,7 @@ teamRouter.get("/", async (req, res) => {
         role,
         joined_at,
         teams (
-          id, name, slug, created_at
+          id, name, slug, created_at, parent_id
         )
       `)
       .eq("user_id", userId)
@@ -33,10 +33,29 @@ teamRouter.get("/", async (req, res) => {
       return;
     }
 
-    const teams = data?.map((tm) => ({
-      ...tm.teams,
-      myRole: tm.role,
-    })) ?? [];
+    // Also fetch sub-teams where user is a member of the parent org
+    const { data: subTeams } = await supabase
+      .from("teams")
+      .select("id, name, slug, created_at, parent_id")
+      .not("parent_id", "is", null);
+
+    const teamIds = new Set(data?.map((tm: any) => tm.teams?.id) ?? []);
+    const orgIds = data?.filter((tm: any) => !tm.teams?.parent_id).map((tm: any) => tm.teams?.id) ?? [];
+
+    const extraSubTeams = (subTeams ?? []).filter(
+      (st) => !teamIds.has(st.id) && orgIds.includes(st.parent_id)
+    );
+
+    const teams = [
+      ...(data?.map((tm: any) => ({
+        ...tm.teams,
+        myRole: tm.role,
+      })) ?? []),
+      ...extraSubTeams.map((st) => ({
+        ...st,
+        myRole: "member" as const,
+      })),
+    ];
 
     res.json(teams);
   } catch (err: any) {
@@ -47,21 +66,37 @@ teamRouter.get("/", async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/teams – Create a new team, add creator as owner
 // ---------------------------------------------------------------------------
-teamRouter.post("/", validateBody(z.object({ name: z.string().min(1) })), async (req, res) => {
+teamRouter.post("/", validateBody(z.object({ name: z.string().min(1), parent_id: z.string().uuid().optional() })), async (req, res) => {
   try {
     const userId = req.user!.sub;
-    const { name } = req.body;
+    const { name, parent_id } = req.body;
     if (!name?.trim()) {
       res.status(400).json({ error: "Name ist erforderlich" });
       return;
     }
 
     const supabase = getSupabaseAdmin();
+
+    // If creating a sub-team, verify user is admin/owner of parent org
+    if (parent_id) {
+      const { data: parentMember } = await supabase
+        .from("team_members")
+        .select("role")
+        .eq("team_id", parent_id)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (!parentMember || !["owner", "admin"].includes(parentMember.role)) {
+        res.status(403).json({ error: "Nur Admins können Teams innerhalb einer Organisation erstellen" });
+        return;
+      }
+    }
+
     const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
     const { data: team, error: teamError } = await supabase
       .from("teams")
-      .insert({ name: name.trim(), slug })
+      .insert({ name: name.trim(), slug, parent_id: parent_id || null })
       .select()
       .single();
 
@@ -163,8 +198,29 @@ teamRouter.post("/:id/members/invite", validateBody(z.object({ email: z.string()
       .maybeSingle();
 
     if (!myMembership || !["owner", "admin"].includes(myMembership.role)) {
-      res.status(403).json({ error: "Nur Admins können Mitglieder einladen" });
-      return;
+      // Check if user is admin of parent org (for sub-team invites)
+      const { data: teamInfo } = await supabase
+        .from("teams")
+        .select("parent_id")
+        .eq("id", teamId)
+        .maybeSingle();
+
+      if (teamInfo?.parent_id) {
+        const { data: parentMember } = await supabase
+          .from("team_members")
+          .select("role")
+          .eq("team_id", teamInfo.parent_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (!parentMember || !["owner", "admin"].includes(parentMember.role)) {
+          res.status(403).json({ error: "Nur Admins können Mitglieder einladen" });
+          return;
+        }
+      } else {
+        res.status(403).json({ error: "Nur Admins können Mitglieder einladen" });
+        return;
+      }
     }
 
     let { data: profile } = await supabase
@@ -335,7 +391,7 @@ teamRouter.patch("/:id/members/:memberId", async (req, res) => {
 
     const supabase = getSupabaseAdmin();
 
-    // Only owner/admin can change roles
+    // Only owner/admin can change roles (check direct or via parent org)
     const { data: myMembership } = await supabase
       .from("team_members")
       .select("role")
@@ -343,7 +399,31 @@ teamRouter.patch("/:id/members/:memberId", async (req, res) => {
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (!myMembership || !["owner", "admin"].includes(myMembership.role)) {
+    let effectiveRole = myMembership?.role;
+
+    // If not a direct member, check parent org
+    if (!effectiveRole) {
+      const { data: teamInfo } = await supabase
+        .from("teams")
+        .select("parent_id")
+        .eq("id", teamId)
+        .maybeSingle();
+
+      if (teamInfo?.parent_id) {
+        const { data: parentMember } = await supabase
+          .from("team_members")
+          .select("role")
+          .eq("team_id", teamInfo.parent_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (parentMember && ["owner", "admin"].includes(parentMember.role)) {
+          effectiveRole = parentMember.role;
+        }
+      }
+    }
+
+    if (!effectiveRole || !["owner", "admin"].includes(effectiveRole)) {
       res.status(403).json({ error: "Keine Berechtigung zum Ändern von Rollen" });
       return;
     }
@@ -360,17 +440,17 @@ teamRouter.patch("/:id/members/:memberId", async (req, res) => {
       return;
     }
 
-    if (myMembership.role === "admin" && targetMembership.role === "owner") {
+    if (effectiveRole === "admin" && targetMembership.role === "owner") {
       res.status(403).json({ error: "Ein Admin kann die Rolle eines Owners nicht ändern" });
       return;
     }
 
-    if (role === "owner" && myMembership.role !== "owner") {
+    if (role === "owner" && effectiveRole !== "owner") {
       res.status(403).json({ error: "Nur ein Owner kann die Rolle 'owner' vergeben" });
       return;
     }
 
-    if (targetMembership.role === "owner" && role !== "owner" && myMembership.role !== "owner") {
+    if (targetMembership.role === "owner" && role !== "owner" && effectiveRole !== "owner") {
       res.status(403).json({ error: "Nur ein Owner kann einen anderen Owner herabstufen" });
       return;
     }
@@ -458,8 +538,29 @@ teamRouter.patch("/:id", async (req, res) => {
       .maybeSingle();
 
     if (!myMembership || !["owner", "admin"].includes(myMembership.role)) {
-      res.status(403).json({ error: "Keine Berechtigung" });
-      return;
+      // Check if user is admin of parent org (for sub-team rename)
+      const { data: teamInfo } = await supabase
+        .from("teams")
+        .select("parent_id")
+        .eq("id", teamId)
+        .maybeSingle();
+
+      if (teamInfo?.parent_id) {
+        const { data: parentMember } = await supabase
+          .from("team_members")
+          .select("role")
+          .eq("team_id", teamInfo.parent_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (!parentMember || !["owner", "admin"].includes(parentMember.role)) {
+          res.status(403).json({ error: "Keine Berechtigung" });
+          return;
+        }
+      } else {
+        res.status(403).json({ error: "Keine Berechtigung" });
+        return;
+      }
     }
 
     const { data, error } = await supabase
@@ -497,8 +598,29 @@ teamRouter.delete("/:id", async (req, res) => {
       .maybeSingle();
 
     if (!myMembership || myMembership.role !== "owner") {
-      res.status(403).json({ error: "Nur der Eigentümer kann das Team löschen" });
-      return;
+      // Check if user is owner of parent org (for sub-team deletion)
+      const { data: teamInfo } = await supabase
+        .from("teams")
+        .select("parent_id")
+        .eq("id", teamId)
+        .maybeSingle();
+
+      if (teamInfo?.parent_id) {
+        const { data: parentMember } = await supabase
+          .from("team_members")
+          .select("role")
+          .eq("team_id", teamInfo.parent_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (parentMember?.role !== "owner") {
+          res.status(403).json({ error: "Nur der Eigentümer kann das Team löschen" });
+          return;
+        }
+      } else {
+        res.status(403).json({ error: "Nur der Eigentümer kann das Team löschen" });
+        return;
+      }
     }
 
     const { error } = await supabase
@@ -518,7 +640,7 @@ teamRouter.delete("/:id", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/teams/unassigned-users – Users with no team membership
+// GET /api/teams/unassigned-users – Users with no team membership at all
 // ---------------------------------------------------------------------------
 teamRouter.get("/unassigned-users", async (req, res) => {
   try {
@@ -541,6 +663,83 @@ teamRouter.get("/unassigned-users", async (req, res) => {
     const unassigned = (allProfiles || []).filter((p: any) => !memberUserIds.has(p.id));
 
     res.json(unassigned);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/teams/:id/available-users – Users in the parent org, not yet in this team
+// ---------------------------------------------------------------------------
+teamRouter.get("/:id/available-users", async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const supabase = getSupabaseAdmin();
+
+    // Find the parent org for this team
+    const { data: team } = await supabase
+      .from("teams")
+      .select("parent_id")
+      .eq("id", teamId)
+      .maybeSingle();
+
+    if (!team?.parent_id) {
+      // No parent org — return all users not in this team
+      const { data: allProfiles } = await supabase
+        .from("profiles")
+        .select("id, email, display_name, avatar_url");
+
+      const { data: teamMembers } = await supabase
+        .from("team_members")
+        .select("user_id")
+        .eq("team_id", teamId);
+
+      const memberIds = new Set((teamMembers || []).map((m: any) => m.user_id));
+      const available = (allProfiles || []).filter((p: any) => !memberIds.has(p.id));
+      res.json(available);
+      return;
+    }
+
+    // Get all members of the parent org (direct or via sub-teams)
+    const { data: orgMembers } = await supabase
+      .from("team_members")
+      .select("user_id")
+      .eq("team_id", team.parent_id);
+
+    // Also get members of sibling sub-teams
+    const { data: siblingTeams } = await supabase
+      .from("teams")
+      .select("id")
+      .eq("parent_id", team.parent_id);
+
+    const siblingIds = (siblingTeams || []).map((t: any) => t.id);
+    const { data: siblingMembers } = await supabase
+      .from("team_members")
+      .select("user_id")
+      .in("team_id", siblingIds);
+
+    // Combine all org-level user IDs
+    const orgUserIds = new Set([
+      ...(orgMembers || []).map((m: any) => m.user_id),
+      ...(siblingMembers || []).map((m: any) => m.user_id),
+    ]);
+
+    // Get profiles for org members
+    const { data: orgProfiles } = await supabase
+      .from("profiles")
+      .select("id, email, display_name, avatar_url")
+      .in("id", Array.from(orgUserIds));
+
+    // Remove users already in this team
+    const { data: teamMembers } = await supabase
+      .from("team_members")
+      .select("user_id")
+      .eq("team_id", teamId);
+
+    const memberIds = new Set((teamMembers || []).map((m: any) => m.user_id));
+    const available = (orgProfiles || []).filter((p: any) => !memberIds.has(p.id));
+
+    res.json(available);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
