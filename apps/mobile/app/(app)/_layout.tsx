@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, useWindowDimensions, StyleSheet, Platform } from 'react-native';
-import { Stack, Slot, usePathname } from 'expo-router';
+import { View, useWindowDimensions, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { Stack, Slot, usePathname, useRouter } from 'expo-router';
 import { Colors } from '../../lib/constants';
+import { Feather } from '@expo/vector-icons';
 import { DesktopLayout } from '../../components/layout/DesktopLayout';
 import { Onboarding } from '../../components/layout/Onboarding';
 import { useInboxes } from '../../hooks/useInboxes';
@@ -13,12 +14,19 @@ const BREAKPOINT_DESKTOP = 1024;
 export default function AppLayout() {
   const { width } = useWindowDimensions();
   const pathname = usePathname();
+  const router = useRouter();
   const { inboxes, isLoading } = useInboxes();
 
   const isDesktop = isMac || width >= BREAKPOINT_DESKTOP;
   
   // Only use the 3-pane layout for the main inbox/email views
   const isSettings = pathname.startsWith('/settings');
+
+  const backBtn = React.useCallback(() => (
+    <TouchableOpacity onPress={() => router.back()} style={{ padding: 4, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <Feather name="chevron-left" size={20} color={Colors.text} />
+    </TouchableOpacity>
+  ), [router]);
 
   if (inboxes.length === 0 && !isLoading && !isSettings) {
     return <Onboarding />;
@@ -42,11 +50,11 @@ export default function AppLayout() {
           headerShadowVisible: false,
           contentStyle: { backgroundColor: Colors.background },
         }}>
-          <Stack.Screen name="index" options={{ title: 'TeamMail' }} />
-          <Stack.Screen name="inbox/list" options={{ title: 'Inbox' }} />
+          <Stack.Screen name="index" options={{ title: 'TeamMail', headerLeft: backBtn }} />
+          <Stack.Screen name="inbox/list" options={{ title: 'Inbox', headerLeft: backBtn }} />
           <Stack.Screen name="email/[emailId]" options={{ 
-            title: 'E-Mail Details',
-            headerShown: !isMac,
+            title: 'E-Mail',
+            headerLeft: backBtn,
           }} />
           <Stack.Screen name="settings" options={{ title: 'Einstellungen', headerShown: false }} />
           <Stack.Screen name="templates/index" options={{ title: 'Vorlagen' }} />
