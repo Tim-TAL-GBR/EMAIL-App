@@ -9,6 +9,7 @@ interface ComposerState {
   inboxId: string;
   sourceEmail?: Email;
   draftToResume?: any;
+  composerKey: number;
 
   openComposer: (params: {
     mode: ComposerMode;
@@ -23,14 +24,16 @@ export const useComposerStore = create<ComposerState>((set) => ({
   isOpen: false,
   mode: 'new',
   inboxId: '',
+  composerKey: 0,
 
-  openComposer: (params) => set({
+  openComposer: (params) => set(state => ({
     isOpen: true,
     mode: params.mode,
     inboxId: params.inboxId,
     sourceEmail: params.sourceEmail,
     draftToResume: params.draftToResume,
-  }),
+    composerKey: state.composerKey + 1,
+  })),
 
   closeComposer: () => set({
     isOpen: false,

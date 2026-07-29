@@ -3,10 +3,11 @@ import { useComposerStore } from '../../stores/composerStore';
 import { EmailComposer } from './EmailComposer';
 
 export function GlobalComposer() {
-  const { isOpen, mode, inboxId, sourceEmail, draftToResume, closeComposer } = useComposerStore();
+  const { isOpen, mode, inboxId, sourceEmail, draftToResume, closeComposer, composerKey } = useComposerStore();
 
   return (
     <EmailComposer
+      key={composerKey}
       visible={isOpen}
       mode={mode}
       inboxId={inboxId}
