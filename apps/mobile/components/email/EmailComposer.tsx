@@ -150,7 +150,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const quotedBody = useMemo(() => originalBody.split('\n').map(line => `> ${line}`).join('\n'), [originalBody]);
   const initialBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quotedBody}` : '';
 
-  // Pre-fill subject/to on mount
+  // Pre-fill subject/to when opening or switching emails
   useEffect(() => {
     if (!draftToResume && !draft) {
       setTo(mode === 'reply'
@@ -169,7 +169,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
       setAttachments([]);
       setUploadProgress({});
     }
-  }, [visible]);
+  }, [visible, sourceEmail?.id, mode, draftToResume?.id]);
 
   // Load draft data
   useEffect(() => {
@@ -283,7 +283,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         setBody(prev => prev.includes(formatted) ? prev : prev + formatted);
       }
     }
-  }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings]);
+  }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings, sourceEmail?.id]);
 
   // Fetch templates
   useEffect(() => {
