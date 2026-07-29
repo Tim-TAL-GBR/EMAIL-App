@@ -106,7 +106,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
   // Reset form state immediately when sourceEmail/mode changes (catches all edge cases)
   const resetKey = `${sourceEmail?.id || 'none'}-${mode}`;
-  const prevResetKey = useRef(resetKey);
+  const prevResetKey = useRef<string | null>(null);
   if (!draftToResume && prevResetKey.current !== resetKey) {
     prevResetKey.current = resetKey;
     const newTo = mode === 'reply'
