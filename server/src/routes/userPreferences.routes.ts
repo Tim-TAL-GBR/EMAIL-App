@@ -30,22 +30,26 @@ userPreferencesRouter.put("/", requireAuth, async (req, res) => {
 
   const supabase = getSupabaseAdmin();
   try {
-    // Fetch existing to merge
+    // Fetch existing row id + preferences
     const { data: existing } = await supabase
       .from("user_preferences")
-      .select("preferences")
+      .select("id, preferences")
       .eq("user_id", req.user!.sub)
       .maybeSingle();
 
     const merged = { ...(existing?.preferences || {}), ...preferences };
 
+    // Upsert with primary key (id is PK, guaranteed to work for onConflict)
+    const record: any = {
+      user_id: req.user!.sub,
+      preferences: merged,
+      updated_at: new Date().toISOString(),
+    };
+    if (existing?.id) record.id = existing.id;
+
     const { data, error } = await supabase
       .from("user_preferences")
-      .upsert({
-        user_id: req.user!.sub,
-        preferences: merged,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" })
+      .upsert(record, { onConflict: "id" })
       .select("preferences")
       .single();
 

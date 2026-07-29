@@ -60,8 +60,8 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     return [];
   }, [inboxes, activeContextType, activeContextId, teams]);
 
-  const labelId = activeContextType === 'label' ? activeContextId : undefined;
-  const { threads, isLoading, isLoadingMore, hasMoreEmails, fetchMoreEmails, refetch } = useEmails(inboxIds, labelId, activeContextType, activeFilter);
+  const labelId = activeContextType === 'label' && activeContextId ? activeContextId : undefined;
+  const { threads, isLoading, isLoadingMore, hasMoreEmails, fetchMoreEmails, refetch } = useEmails(inboxIds, labelId, activeContextType ?? undefined, activeFilter);
   const { drafts, isLoading: draftsLoading, refetch: refetchDrafts } = useDraftsList(inboxIds);
   const { session, user } = useAuthStore();
   const { openComposer } = useComposerStore();
@@ -350,7 +350,19 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
         )}
         renderItem={({ item }) => {
           if (activeFilter === 'drafts') {
-            return <DraftListItem draft={item as any} onPress={() => openComposerForDraft(item)} />;
+            return (
+              <DraftListItem
+                draft={item as any}
+                onPress={() => openComposerForDraft(item)}
+                onDelete={async () => {
+                  const draftItem = item as any;
+                  if (draftItem.id) {
+                    await supabase.from('drafts').delete().eq('id', draftItem.id);
+                    refetchDrafts();
+                  }
+                }}
+              />
+            );
           }
           return (
             <EmailListItem 

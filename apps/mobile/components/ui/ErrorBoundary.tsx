@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
   errorText: {
     fontFamily: FontFamily,
     fontSize: 14,
-    color: Colors.danger,
+    color: Colors.error,
   },
   button: {
     backgroundColor: Colors.primary,

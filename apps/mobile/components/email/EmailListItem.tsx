@@ -31,8 +31,8 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
   }
 
   // Extract name for avatar (e.g. "Max Kemper" from "Max Kemper <max@...>")
-  const nameMatch = fromLabel.match(/^"?([^"<]+)"?\s*</);
-  const displayName = nameMatch ? nameMatch[1].trim() : fromLabel.split('@')[0];
+  const nameMatch = fromLabel?.match(/^"?([^"<]+)"?\s*</);
+  const displayName = nameMatch ? nameMatch[1].trim() : (fromLabel || '').split('@')[0];
 
   const threadCount = thread.emails.length;
   

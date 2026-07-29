@@ -25,7 +25,7 @@ interface ChatFeedProps {
 
 export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChange, onDraftPress, headerComponent }: ChatFeedProps) {
   const { comments, isLoading, addComment } = useComments(emailId);
-  const { draft } = useDraft(inboxId, threadId);
+  const { draft, deleteDraft } = useDraft(inboxId, threadId);
   const [newComment, setNewComment] = useState('');
   const [mentionQuery, setMentionQuery] = useState('');
   const [showMentionPicker, setShowMentionPicker] = useState(false);
@@ -98,13 +98,17 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
     } else if (item.type === 'draft') {
       return (
         <View style={styles.draftContainer}>
-          <DraftListItem draft={item.data as any} onPress={() => onDraftPress && onDraftPress(item.data)} />
+          <DraftListItem
+            draft={item.data as any}
+            onPress={() => onDraftPress && onDraftPress(item.data)}
+            onDelete={deleteDraft}
+          />
         </View>
       )
     } else {
       return <ChatMessage comment={item.data as any} />
     }
-  }, [timeline, onEmailStatusChange, onDraftPress]);
+  }, [timeline, onEmailStatusChange, onDraftPress, deleteDraft]);
 
   if (isLoading && comments.length === 0) {
     return (

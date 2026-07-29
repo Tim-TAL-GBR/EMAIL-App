@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_preferences_user_id ON user_preferences(user_id);
 
+-- Grant service_role full access (used by getSupabaseAdmin)
+GRANT ALL PRIVILEGES ON TABLE user_preferences TO service_role;
+
 COMMENT ON TABLE user_preferences IS 'Stores user-level app preferences as a JSONB blob';
 COMMENT ON COLUMN user_preferences.preferences IS 'JSON object containing all user preferences keyed by category';
 

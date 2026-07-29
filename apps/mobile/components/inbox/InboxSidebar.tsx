@@ -288,7 +288,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
                     useNavigationStore.getState().setEmailId(pin.thread_id);
                     useEmailStore.getState().setActiveEmail(pin.thread_id);
                     if (!isDesktop) {
-                      router.push(`/inbox/${pin.thread_id}`);
+                      router.push(`/inbox/${pin.thread_id}` as any);
                     }
                   }}
                 >

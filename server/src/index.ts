@@ -20,6 +20,7 @@ import { userEmailSettingsRouter } from "./routes/userEmailSettings.routes.js";
 import { taskRouter } from "./routes/task.routes.js";
 import { taskNotificationRouter } from "./routes/taskNotification.routes.js";
 import { userPreferencesRouter } from "./routes/userPreferences.routes.js";
+import { aiRouter } from "./routes/ai.routes.js";
 import { startEmailWorker } from "./services/queue.service.js";
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,7 @@ app.get("/health", (_req, res) => {
 });
 
 // API Routes
+app.use("/api/ai", aiRouter);
 app.use("/api/mail", mailRouter);
 app.use("/api/inboxes", inboxRouter);
 app.use("/api/emails", emailRouter);

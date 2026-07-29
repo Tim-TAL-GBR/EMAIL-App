@@ -53,7 +53,7 @@ export default function SignaturesSettingsScreen() {
     }
     // Org selected – include sub-team signatures
     const teamIds = [selectedTeam.id, ...getSubTeams(selectedTeam.id).map(s => s.id)];
-    return signatures.filter(s => s.scope === 'team' && teamIds.includes(s.team_id));
+    return signatures.filter(s => s.scope === 'team' && s.team_id && teamIds.includes(s.team_id));
   }, [signatures, selectedTeam, selectedTeamId, getSubTeams]);
 
   interface InboxAlias {

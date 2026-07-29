@@ -44,7 +44,7 @@ interface UseCommentsReturn {
   /** Error message if fetch failed */
   error: string | null;
   /** Post a new comment to the email thread */
-  addComment: (body: string) => Promise<{ error: Error | null }>;
+  addComment: (body: string, mentionedUserIds?: string[]) => Promise<{ error: Error | null }>;
 }
 
 /**

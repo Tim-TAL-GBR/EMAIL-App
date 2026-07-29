@@ -7,7 +7,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { EmailAssignment } from './EmailAssignment';
 import { supabase } from '../../lib/supabase';
-import { EmailComposer } from './EmailComposer';
+import { useComposerStore } from '../../stores/composerStore';
 
 function sanitizeHtml(html: string): string {
   return html
@@ -57,10 +57,9 @@ interface EmailDetailProps {
 
 export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange }: EmailDetailProps) {
   const [assignments, setAssignments] = useState<any[]>([]);
-  const [composerVisible, setComposerVisible] = useState(false);
-  const [composerMode, setComposerMode] = useState<'reply' | 'forward' | 'new'>('reply');
   const [isCollapsed, setIsCollapsed] = useState(initiallyCollapsed);
   const { archiveEmail, deleteEmail } = useEmailStore();
+  const { openComposer } = useComposerStore();
 
   useEffect(() => {
     loadAssignments();
@@ -105,12 +104,13 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
   const toDisplay = email.to_addresses?.length ? email.to_addresses : [];
   const formattedDate = email.received_at ? format(parseISO(email.received_at), 'MMM d, HH:mm') : '';
 
-  const parseSenderName = (fromAddress: string) => {
+  const parseSenderName = (fromAddress?: string) => {
+    if (!fromAddress) return 'Unbekannt';
     const match = fromAddress.match(/^(.*?)\s*<.*>$/);
     if (match && match[1].trim()) return match[1].replace(/['"]/g, '').trim();
     return fromAddress.split('@')[0];
   };
-
+ 
   const senderName = parseSenderName(email.from_address);
   const senderInitials = senderName.substring(0, 2).toUpperCase();
   const plainBody = email.snippet || '';
@@ -149,26 +149,35 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
 
   return (
     <View style={styles.card}>
-      <TouchableOpacity 
-        style={styles.cardHeader} 
-        onPress={() => setIsCollapsed(true)} 
-        activeOpacity={0.8}
-      >
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{senderInitials}</Text>
-        </View>
-        <View style={styles.headerInfo}>
-          <View style={styles.headerTitleRow}>
+      <View style={styles.cardHeader}>
+        <TouchableOpacity
+          style={styles.collapsibleArea}
+          onPress={() => setIsCollapsed(true)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{senderInitials}</Text>
+          </View>
+          <View style={styles.headerInfo}>
             <Text style={styles.senderNameBold}>{senderName}</Text>
-            <Text style={styles.dateText}>{formattedDate}</Text>
+            <View style={styles.headerSubtitleRow}>
+              <Text style={styles.toInfo}>
+                {toDisplay.length > 0 ? `To: ${toDisplay.join(', ')}` : inboxName}
+              </Text>
+            </View>
           </View>
-          <View style={styles.headerSubtitleRow}>
-            <Text style={styles.toInfo}>
-              {toDisplay.length > 0 ? `To: ${toDisplay.join(', ')}` : inboxName}
-            </Text>
-          </View>
+        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <Text style={styles.dateText}>{formattedDate}</Text>
+          <TouchableOpacity
+            style={styles.replyBtn}
+            onPress={() => openComposer({ mode: 'reply', inboxId: email.inbox_id, sourceEmail: email as any })}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Feather name="corner-up-left" size={14} color={Colors.textSecondary} />
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
       
       <View style={styles.bodyContainer}>
         {isLoadingBody ? (
@@ -248,14 +257,6 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
         </View>
       )}
 
-      <EmailComposer
-        visible={composerVisible}
-        onClose={() => setComposerVisible(false)}
-        mode={composerMode}
-        sourceEmail={email as any}
-        inboxId={email.inbox_id}
-      />
-      
       <AttachmentPreviewModal 
         visible={previewVisible} 
         attachment={selectedAttachment} 
@@ -294,10 +295,22 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    justifyContent: 'space-between',
     marginBottom: Spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
     paddingBottom: Spacing.md,
+  },
+  collapsibleArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingLeft: Spacing.sm,
   },
   avatar: {
     width: 32,
@@ -334,11 +347,11 @@ const styles = StyleSheet.create({
   collapsedContent: {
     flex: 1,
   },
-  headerTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+
+  replyBtn: {
+    padding: Spacing.xs,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 2,
   },
   collapsedHeaderRow: {
     flexDirection: 'row',

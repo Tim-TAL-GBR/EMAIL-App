@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   window: {
-    position: 'absolute',
+    position: Platform.OS === 'web' ? 'fixed' : 'absolute',
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     shadowColor: '#000',
@@ -87,13 +87,14 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
     overflow: 'hidden',
     display: 'flex',
+    zIndex: 9999,
     flexDirection: 'column',
   },
   dragHandle: {
     backgroundColor: '#F5F5F5',
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
-    cursor: 'move', // Web specific
+    cursor: 'move' as any, // Web specific
   },
   content: {
     flex: 1,

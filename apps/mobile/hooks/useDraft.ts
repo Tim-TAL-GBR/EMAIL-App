@@ -128,7 +128,11 @@ export function useDraft(inboxId: string, threadId?: string | null, options?: Us
 
   const deleteDraft = useCallback(async () => {
     if (draft?.id) {
-      await supabase.from('drafts').delete().eq('id', draft.id);
+      const { error } = await supabase.from('drafts').delete().eq('id', draft.id);
+      if (error) {
+        console.error('deleteDraft error:', error);
+        return;
+      }
       setDraft(null);
     }
   }, [draft]);

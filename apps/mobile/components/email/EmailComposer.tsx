@@ -28,9 +28,11 @@ interface EmailComposerProps {
 }
 
 function extractEmail(str?: string) {
-  if (!str) return '';
-  const match = str.match(/<([^>]+)>/);
-  return match ? match[1].trim() : str.trim();
+  try {
+    if (!str) return '';
+    const match = str.match(/<([^>]+)>/);
+    return match ? match[1].trim() : str.trim();
+  } catch { return ''; }
 }
 
 function formatSender(alias: { email_address: string; name?: string }, defaultName?: string) {
@@ -51,7 +53,8 @@ function findInvalidEmails(str: string) {
 }
 
 function findMissingAttachmentRefs(body: string, attachments: { file_name: string }[]) {
-  const lower = body.toLowerCase();
+  const newText = body.split('\n>')[0];
+  const lower = newText.toLowerCase();
   const hintWords = ['anhang', 'attachment', 'datei', 'siehe anbei', 'beigefügt', 'beilage', 'pdf', 'dokument'];
   const hasHint = hintWords.some(w => lower.includes(w));
   if (!hasHint) return [];
@@ -96,6 +99,10 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const [templates, setTemplates] = useState<{ id: string; name: string; subject?: string; body: string }[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null);
+
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Autocomplete: collect all known email addresses from loaded threads
   const threads = useEmailStore(s => s.threads);
@@ -224,16 +231,35 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
       }
       setSenderAliases(result);
 
-      const currentEmail = extractEmail(senderAddress);
-      const stillValid = result.some(a => a.email_address === currentEmail);
-      if (!senderAddress || !stillValid) {
-        const activeInbox = inboxes.find(i => i.id === activeInboxId);
-        const primary = activeInbox || inboxes[0];
-        const displayName = userSigSettings?.display_name || (primary?.name !== primary?.email_address ? primary?.name : undefined);
-        setSenderAddress(displayName ? `${displayName} <${primary?.email_address}>` : primary?.email_address || '');
+      try {
+        // In reply mode, prefer the inbox that received the original email
+        if (mode === 'reply' && sourceEmail && Array.isArray(result)) {
+          const targetAddress = sourceEmail.direction === 'inbound'
+            ? (Array.isArray(sourceEmail.to_addresses) ? sourceEmail.to_addresses[0] : '')
+            : (sourceEmail.from_address || '');
+          if (targetAddress) {
+            const match = result.find(a => a && a.email_address && a.email_address.toLowerCase() === targetAddress.toLowerCase());
+            if (match) {
+              const displayName = match.name || undefined;
+              setSenderAddress(displayName ? `${displayName} <${match.email_address}>` : match.email_address);
+              return;
+            }
+          }
+        }
+
+        const currentEmail = extractEmail(senderAddress);
+        const stillValid = result.some(a => a.email_address === currentEmail);
+        if (!senderAddress || !stillValid) {
+          const activeInbox = inboxes.find(i => i.id === activeInboxId);
+          const primary = activeInbox || inboxes[0];
+          const displayName = userSigSettings?.display_name || (primary?.name !== primary?.email_address ? primary?.name : undefined);
+          setSenderAddress(displayName ? `${displayName} <${primary?.email_address}>` : primary?.email_address || '');
+        }
+      } catch (e) {
+        console.warn('[EmailComposer] Error setting sender address:', e);
       }
     })();
-  }, [inboxes, visible, userSigSettings]);
+  }, [inboxes, visible, userSigSettings, mode, sourceEmail]);
 
   // Signature on open
   useEffect(() => {
@@ -510,6 +536,34 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     return () => window.removeEventListener('keydown', handler);
   }, [visible, isDesktop, handleSend]);
 
+  const handleAiSuggest = useCallback(async () => {
+    setAiSuggestion(null);
+    setAiError(null);
+    setAiLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Nicht authentifiziert');
+      const res = await fetch(`${API_URL}/api/ai/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          subject: sourceEmail?.subject || subject,
+          bodyText: sourceEmail?.body_text || body,
+          fromAddress: sourceEmail?.from_address,
+          inboxId: inboxId || activeInboxId,
+          templates: templates.slice(0, 5).map(t => ({ name: t.name, subject: t.subject, body: t.body })),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Fehler bei der KI-Anfrage');
+      setAiSuggestion(json.suggestion);
+    } catch (e: any) {
+      setAiError(e.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [sourceEmail, subject, body, templates, inboxId, activeInboxId]);
+
   const composerContent = (
     <SafeAreaView style={[styles.container, isDesktop && styles.desktopContainer]}>
       <View style={styles.header}>
@@ -661,6 +715,38 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           textAlignVertical="top"
         />
 
+        {aiError && (
+          <View style={styles.aiErrorBox}>
+            <Feather name="alert-circle" size={14} color={Colors.error} />
+            <Text style={styles.aiErrorText}>{aiError}</Text>
+          </View>
+        )}
+        {aiSuggestion && (
+          <View style={styles.aiSuggestionBox}>
+            <View style={styles.aiSuggestionHeader}>
+              <Feather name="zap" size={14} color={Colors.primary} />
+              <Text style={styles.aiSuggestionTitle}>KI-Vorschlag</Text>
+            </View>
+            <ScrollView style={styles.aiSuggestionScroll}>
+              <Text style={styles.aiSuggestionText}>{aiSuggestion}</Text>
+            </ScrollView>
+            <View style={styles.aiSuggestionActions}>
+              <TouchableOpacity
+                style={styles.aiSuggestionBtn}
+                onPress={() => { setBody(prev => prev + '\n\n' + aiSuggestion); setAiSuggestion(null); }}
+              >
+                <Text style={styles.aiSuggestionBtnText}>Übernehmen</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.aiSuggestionDismiss}
+                onPress={() => setAiSuggestion(null)}
+              >
+                <Text style={styles.aiSuggestionDismissText}>Verwerfen</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {missingRefs.length > 0 && (
           <View style={styles.warningBar}>
             <Feather name="alert-triangle" size={14} color={Colors.warning} />
@@ -684,56 +770,77 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
             ))}
           </View>
 
-          <TouchableOpacity
-            style={styles.attachBtn}
-            onPress={() => setShowTemplatePicker(true)}
-          >
-            <Feather name="file-text" size={18} color={Colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.attachBtn}
-            onPress={handlePickDocument}
-            disabled={isUploading}
-          >
-            {isUploading ? (
-              <ActivityIndicator size="small" color={Colors.primary} />
-            ) : (
-              <Feather name="paperclip" size={20} color={Colors.primary} />
-            )}
-          </TouchableOpacity>
+          <View style={styles.footerActions}>
+            <TouchableOpacity
+              style={styles.attachBtn}
+              onPress={() => setShowTemplatePicker(true)}
+              activeOpacity={0.6}
+            >
+              <Feather name="file-text" size={18} color={Colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.attachBtn, aiLoading && styles.attachBtnDisabled]}
+              onPress={handleAiSuggest}
+              activeOpacity={0.6}
+            >
+              {aiLoading ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <Feather name="zap" size={18} color={Colors.primary} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.attachBtn}
+              onPress={handlePickDocument}
+              disabled={isUploading}
+              activeOpacity={0.6}
+            >
+              {isUploading ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <Feather name="paperclip" size={20} color={Colors.primary} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </SafeAreaView>
   );
 
-  const templatePickerModal = templates.length > 0 && (
-    <Modal visible={showTemplatePicker} transparent animationType="fade">
+  const templatePickerModal = (
+    <Modal visible={showTemplatePicker} transparent animationType="fade" onRequestClose={() => setShowTemplatePicker(false)}>
       <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowTemplatePicker(false)}>
         <View style={styles.pickerContainer} onStartShouldSetResponder={() => true}>
           <Text style={styles.pickerTitle}>Vorlage auswählen</Text>
-          <ScrollView style={{ maxHeight: 320 }}>
-            {templates.map(tpl => (
-              <TouchableOpacity
-                key={tpl.id}
-                style={styles.pickerOption}
-                onPress={() => {
-                  if (tpl.subject) setSubject(tpl.subject);
-                  setBody(tpl.body);
-                  setShowTemplatePicker(false);
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.pickerOptionText} numberOfLines={1}>{tpl.name}</Text>
-                  {tpl.subject && (
-                    <Text style={{ fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 }} numberOfLines={1}>
-                      {tpl.subject}
-                    </Text>
-                  )}
-                </View>
-                <Feather name="chevron-right" size={14} color={Colors.textTertiary} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          {templates.length === 0 ? (
+            <View style={{ padding: Spacing.lg, alignItems: 'center' }}>
+              <Text style={{ color: Colors.textTertiary }}>Keine Vorlagen vorhanden</Text>
+            </View>
+          ) : (
+            <ScrollView style={{ maxHeight: 320 }}>
+              {templates.map(tpl => (
+                <TouchableOpacity
+                  key={tpl.id}
+                  style={styles.pickerOption}
+                  onPress={() => {
+                    if (tpl.subject) setSubject(tpl.subject);
+                    setBody(tpl.body);
+                    setShowTemplatePicker(false);
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pickerOptionText} numberOfLines={1}>{tpl.name}</Text>
+                    {tpl.subject && (
+                      <Text style={{ fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 }} numberOfLines={1}>
+                        {tpl.subject}
+                      </Text>
+                    )}
+                  </View>
+                  <Feather name="chevron-right" size={14} color={Colors.textTertiary} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
         </View>
       </TouchableOpacity>
     </Modal>
@@ -910,7 +1017,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-end',
     borderTopWidth: 1,
     borderTopColor: Colors.borderLight,
@@ -921,6 +1027,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.xs,
+  },
+  footerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   attachmentChip: {
     flexDirection: 'row',
@@ -985,8 +1095,13 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.sm,
   },
   attachBtn: {
-    padding: Spacing.sm,
+    padding: Spacing.md,
     marginLeft: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceHover,
   },
   desktopContainer: {
     backgroundColor: '#FFF',
@@ -1084,5 +1199,76 @@ const styles = StyleSheet.create({
   pickerOptionTextActive: {
     color: '#FFFFFF',
     fontWeight: FontWeight.medium,
+  },
+  aiErrorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    padding: Spacing.sm,
+    backgroundColor: Colors.error + '15',
+    borderRadius: BorderRadius.sm,
+    marginTop: Spacing.xs,
+  },
+  aiErrorText: {
+    fontSize: FontSize.xs,
+    color: Colors.error,
+    flex: 1,
+  },
+  attachBtnDisabled: {
+    opacity: 0.5,
+  },
+  aiSuggestionBox: {
+    backgroundColor: Colors.primaryLight + '10',
+    borderWidth: 1,
+    borderColor: Colors.primaryLight + '30',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  aiSuggestionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  aiSuggestionTitle: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+  },
+  aiSuggestionScroll: {
+    maxHeight: 200,
+  },
+  aiSuggestionText: {
+    fontSize: FontSize.sm,
+    color: Colors.text,
+    lineHeight: 20,
+  },
+  aiSuggestionActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+  },
+  aiSuggestionBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+  },
+  aiSuggestionBtnText: {
+    color: '#FFF',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+  },
+  aiSuggestionDismiss: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  aiSuggestionDismissText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
   },
 });

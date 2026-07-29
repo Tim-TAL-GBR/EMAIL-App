@@ -4,22 +4,21 @@ import { Colors, Spacing, FontFamily, FontSize, FontWeight, BorderRadius } from 
 import { Draft } from '../../hooks/useDraft';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { Feather } from '@expo/vector-icons';
 
 interface DraftListItemProps {
   draft: Draft;
   onPress: () => void;
+  onDelete?: () => void;
 }
 
-export function DraftListItem({ draft, onPress }: DraftListItemProps) {
+export function DraftListItem({ draft, onPress, onDelete }: DraftListItemProps) {
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
-      <View style={styles.content}>
+    <View style={styles.container}>
+      <TouchableOpacity style={styles.pressableArea} onPress={onPress} activeOpacity={0.7}>
         <View style={styles.header}>
           <Text style={styles.recipient} numberOfLines={1}>
             Entwurf {draft.to_addresses && draft.to_addresses.length > 0 ? `an ${draft.to_addresses.join(', ')}` : '(Kein Empfänger)'}
-          </Text>
-          <Text style={styles.time}>
-            {draft.updated_at ? formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true, locale: de }) : ''}
           </Text>
         </View>
         <Text style={styles.subject} numberOfLines={1}>
@@ -28,20 +27,37 @@ export function DraftListItem({ draft, onPress }: DraftListItemProps) {
         <Text style={styles.preview} numberOfLines={2}>
           {draft.body_text || '(Kein Inhalt)'}
         </Text>
+      </TouchableOpacity>
+      <View style={styles.sidebar}>
+        <Text style={styles.time}>
+          {draft.updated_at ? formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true, locale: de }) : ''}
+        </Text>
+        {onDelete && (
+          <TouchableOpacity style={styles.deleteBtn} onPress={onDelete} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Feather name="trash-2" size={14} color={Colors.error} />
+          </TouchableOpacity>
+        )}
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: Spacing.md,
+    flexDirection: 'row',
     backgroundColor: Colors.background,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
   },
-  content: {
+  pressableArea: {
     flex: 1,
+    padding: Spacing.md,
+  },
+  sidebar: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingRight: Spacing.md,
+    gap: Spacing.xs,
   },
   header: {
     flexDirection: 'row',
@@ -73,5 +89,10 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily,
     fontSize: FontSize.md,
     color: Colors.textSecondary,
+  },
+  deleteBtn: {
+    padding: Spacing.xs,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

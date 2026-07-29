@@ -38,6 +38,10 @@ export interface Inbox {
   folder_sent?: string;
   folder_trash?: string;
   folder_spam?: string;
+  folder_drafts?: string;
+  folder_inbox?: string;
+  imap_secure?: boolean;
+  smtp_secure?: boolean;
 }
 
 /** Shape of the inbox state and actions */
