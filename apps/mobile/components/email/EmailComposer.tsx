@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { View, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, Text, ActivityIndicator, Alert, Platform, useWindowDimensions, ScrollView } from 'react-native';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius, FontFamily } from '../../lib/constants';
 import { Button } from '../ui/Button';
@@ -103,6 +103,33 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // Reset form state immediately when sourceEmail/mode changes (catches all edge cases)
+  const resetKey = `${sourceEmail?.id || 'none'}-${mode}`;
+  const prevResetKey = useRef(resetKey);
+  if (!draftToResume && prevResetKey.current !== resetKey) {
+    prevResetKey.current = resetKey;
+    const newTo = mode === 'reply'
+      ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length
+          ? sourceEmail.to_addresses[0]
+          : sourceEmail?.from_address)
+      : '';
+    const newSubject = mode === 'reply'
+      ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`)
+      : mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : '';
+    const origBody = sourceEmail?.body_text || '';
+    const quoted = origBody.split('\n').map(l => `> ${l}`).join('\n');
+    const newBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quoted}` : '';
+    setTo(newTo);
+    setCc('');
+    setBcc('');
+    setShowBcc(false);
+    setSubject(newSubject);
+    setBody(newBody);
+    setAttachments([]);
+    setUploadProgress({});
+    setSenderAddress('');
+  }
 
   // Autocomplete: collect all known email addresses from loaded threads
   const threads = useEmailStore(s => s.threads);

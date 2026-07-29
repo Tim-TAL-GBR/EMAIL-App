@@ -26,14 +26,19 @@ export const useComposerStore = create<ComposerState>((set) => ({
   inboxId: '',
   composerKey: 0,
 
-  openComposer: (params) => set(state => ({
-    isOpen: true,
-    mode: params.mode,
-    inboxId: params.inboxId,
-    sourceEmail: params.sourceEmail,
-    draftToResume: params.draftToResume,
-    composerKey: state.composerKey + 1,
-  })),
+  openComposer: (params) => {
+    set({ isOpen: false, sourceEmail: undefined, draftToResume: undefined });
+    setTimeout(() => {
+      set(state => ({
+        isOpen: true,
+        mode: params.mode,
+        inboxId: params.inboxId,
+        sourceEmail: params.sourceEmail,
+        draftToResume: params.draftToResume,
+        composerKey: state.composerKey + 1,
+      }));
+    }, 0);
+  },
 
   closeComposer: () => set({
     isOpen: false,
