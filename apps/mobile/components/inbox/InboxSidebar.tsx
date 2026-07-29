@@ -398,10 +398,6 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
           activeOpacity={0.7}
           onPress={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
         >
-          <View style={styles.otherUserAvatars}>
-            <View style={[styles.miniAvatar, { backgroundColor: '#00B388', zIndex: 2 }]}><Text style={styles.miniAvatarText}>TU</Text></View>
-            <View style={[styles.miniAvatar, { backgroundColor: '#FFB800', marginLeft: -8, zIndex: 1 }]}><Text style={styles.miniAvatarText}>E</Text></View>
-          </View>
           <Avatar 
             name={user?.user_metadata?.display_name || 'User'} 
             size={24} 
@@ -611,25 +607,6 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     borderRadius: 6,
     gap: Spacing.sm,
-  },
-  otherUserAvatars: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: Spacing.xs,
-  },
-  miniAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FFF',
-  },
-  miniAvatarText: {
-    color: '#FFF',
-    fontSize: 9,
-    fontWeight: 'bold',
   },
   userDetails: {
     flex: 1,
