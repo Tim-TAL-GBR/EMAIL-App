@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, LayoutRectangle, Alert, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -29,47 +30,54 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
   const selectedThread = threads.find(t => t.id === threadId);
 
   useEffect(() => {
-    setShopifyResult(null);
-    setShowShopifyPanel(false);
+    let isMounted = true;
     const run = async () => {
-      if (selectedThread && selectedThread.latestEmail) {
-        const unreadEmailIds = selectedThread.emails.filter(e => !e.is_read).map(e => e.id);
-        if (unreadEmailIds.length > 0) {
-          await supabase.from('emails').update({ is_read: true }).in('id', unreadEmailIds);
-          for (const id of unreadEmailIds) {
-            useEmailStore.getState().updateEmail({ id, is_read: true } as any);
+      if (threadId && selectedThread) {
+        if (selectedThread.latestEmail && !selectedThread.latestEmail.is_read) {
+          const { error } = await supabase
+            .from('emails')
+            .update({ is_read: true })
+            .eq('id', selectedThread.latestEmail.id);
+          
+          if (!error && isMounted) {
+            useEmailStore.getState().updateEmail({ id: selectedThread.latestEmail.id, is_read: true } as any);
           }
         }
 
+        if (!isMounted || !selectedThread.latestEmail) return;
         loadAssignments(selectedThread.latestEmail.id);
         
         const teamId = selectedThread.latestEmail.team_id;
         if (teamId) {
-          fetchLabels(teamId);
+          if (isMounted) fetchLabels(teamId);
         } else {
           supabase.from('inboxes').select('team_id').eq('id', selectedThread.latestEmail.inbox_id).single().then(({data}) => {
-            if (data?.team_id) fetchLabels(data.team_id);
+            if (data?.team_id && isMounted) fetchLabels(data.team_id);
           });
         }
 
-        if (selectedThread.latestEmail.from_address && teamId) {
+        if (selectedThread.latestEmail.from_address && teamId && isMounted) {
           try {
             const { data: { session } } = await supabase.auth.getSession();
-            const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-            const res = await fetch(`${baseUrl}/api/shopify/customer?email=${encodeURIComponent(selectedThread.latestEmail.from_address)}&team_id=${teamId}`, {
+            
+            const res = await fetch(`${API_URL}/api/shopify/customer?email=${encodeURIComponent(selectedThread.latestEmail.from_address)}&team_id=${teamId}`, {
               headers: { 'Authorization': `Bearer ${session?.access_token}` }
             });
+            if (!isMounted) return;
             if (res.status === 404) {
               setShopifyResult({ connected: false, hasCustomer: false });
             } else if (res.ok) {
               const json = await res.json();
               setShopifyResult({ connected: true, hasCustomer: !!json.customer });
             }
-          } catch {}
+          } catch (err) {
+            console.error('Shopify fetch error:', err);
+          }
         }
       }
     };
     run();
+    return () => { isMounted = false; };
   }, [threadId]);
 
   const loadAssignments = async (emailId: string) => {
@@ -150,8 +158,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
-      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/emails/${selectedThread.latestEmail.id}/assign`, {
+      
+      const response = await fetch(`${API_URL}/api/emails/${selectedThread.latestEmail.id}/assign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -175,8 +183,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
-      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/emails/${selectedThread.latestEmail.id}/unassign`, {
+      
+      const response = await fetch(`${API_URL}/api/emails/${selectedThread.latestEmail.id}/unassign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

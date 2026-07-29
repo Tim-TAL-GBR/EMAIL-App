@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/constants";
 /**
  * Email Store
  *
@@ -255,7 +256,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   fetchMoreEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string, mailboxName?: string) => {
     if (get().isLoadingMore || !get().hasMoreEmails) return;
-    set({ isLoadingMore: true, error: null });
+    const fetchId = Date.now();
+    set({ isLoadingMore: true, error: null, _currentFetchId: fetchId });
 
     if (contextType !== 'assigned' && (!inboxIds || inboxIds.length === 0)) {
       set({ isLoadingMore: false });
@@ -313,6 +315,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         return;
       }
 
+      if (get()._currentFetchId !== fetchId) {
+        console.log('[DEBUG] Ignoring stale fetchMoreEmails response');
+        return;
+      }
+
       const newEmails = (data as Email[]) ?? [];
       
       // Filter out any potential duplicates that might have been added via realtime while fetching
@@ -328,6 +335,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         hasMoreEmails: newEmails.length === limit && allEmails.length < MAX_EMAILS
       });
     } catch (err) {
+      if (get()._currentFetchId !== fetchId) return;
       set({
         error: err instanceof Error ? err.message : 'Failed to fetch more emails',
         isLoadingMore: false,
@@ -604,8 +612,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
 
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/emails/${emailId}/archive`, {
+      
+      const response = await fetch(`${API_URL}/api/emails/${emailId}/archive`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
@@ -640,8 +648,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
 
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/emails/${emailId}`, {
+      
+      const response = await fetch(`${API_URL}/api/emails/${emailId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`

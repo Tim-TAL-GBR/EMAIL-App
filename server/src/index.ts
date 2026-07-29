@@ -1,4 +1,13 @@
 import "dotenv/config";
+
+const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`❌ Missing required environment variable: ${envVar}`);
+    process.exit(1);
+  }
+}
+
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import express from "express";
@@ -35,8 +44,12 @@ const PORT = Number(process.env.PORT) || 3001;
 
 const app = express();
 
+if (!process.env.FRONTEND_URL) {
+  console.error("[server] FRONTEND_URL is not set");
+}
+
 const allowedOrigins = [
-  process.env.FRONTEND_URL || "https://mail.tim-regener.com",
+  process.env.FRONTEND_URL as string,
   "https://extensions.shopifycdn.com",
   "https://admin.shopify.com",
 ];
@@ -53,6 +66,7 @@ app.use(cors({
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(express.json({ limit: '2mb' }));
 
+app.set('trust proxy', 1);
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
@@ -99,6 +113,10 @@ server.timeout = 30000;
 server.keepAliveTimeout = 15000;
 createWebSocketGateway(server);
 
+let taskNotificationInterval: NodeJS.Timeout | undefined;
+let dailyResetTimeout: NodeJS.Timeout | undefined;
+let dailyResetInterval: NodeJS.Timeout | undefined;
+
 server.listen(PORT, async () => {
   console.log(`[server] TeamMail realtime server listening on port ${PORT}`);
   
@@ -109,12 +127,13 @@ server.listen(PORT, async () => {
   await mailManager.initialize();
 
   // Task due date notifications — check every 15 minutes
-  setInterval(async () => {
+  taskNotificationInterval = setInterval(async () => {
     try {
       const res = await fetch(`http://localhost:${PORT}/api/task-notifications/check`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
       if (data.checked > 0) {
         console.log(`[TaskNotifications] Checked ${data.checked} tasks, sent ${data.sent} notifications`);
@@ -131,13 +150,14 @@ server.listen(PORT, async () => {
     midnight.setHours(24, 0, 0, 0);
     return midnight.getTime() - now.getTime();
   })();
-  setTimeout(() => {
-    setInterval(async () => {
+  dailyResetTimeout = setTimeout(() => {
+    dailyResetInterval = setInterval(async () => {
       try {
-        await fetch(`http://localhost:${PORT}/api/task-notifications/reset-daily`, {
+        const res = await fetch(`http://localhost:${PORT}/api/task-notifications/reset-daily`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
         });
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         console.log('[TaskNotifications] Daily notification reset completed');
       } catch (err) {
         console.error('[TaskNotifications] Daily reset failed:', err);
@@ -153,6 +173,10 @@ server.listen(PORT, async () => {
 async function shutdown(signal: string) {
   console.log(`[server] Received ${signal} – shutting down gracefully…`);
   
+  if (taskNotificationInterval) clearInterval(taskNotificationInterval);
+  if (dailyResetTimeout) clearTimeout(dailyResetTimeout);
+  if (dailyResetInterval) clearInterval(dailyResetInterval);
+
   await mailManager.shutdown();
   
   server.close(() => {

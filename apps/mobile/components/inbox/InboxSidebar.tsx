@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
-import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout, Shadows } from '../../lib/constants';
+import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout, Shadows, API_URL } from '../../lib/constants';
 import { useInboxes } from '../../hooks/useInboxes';
 import { useAuthStore } from '../../stores/authStore';
 import { useNavigationStore, ContextType, FilterType } from '../../stores/navigationStore';
@@ -13,7 +13,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { CreateLabelModal } from './CreateLabelModal';
 import { supabase } from '../../lib/supabase';
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 interface InboxSidebarProps {
   isDesktop?: boolean;
@@ -44,18 +44,20 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   // IMAP folders per inbox (cached after first fetch)
   const [imapFolders, setImapFolders] = useState<Record<string, { path: string; name: string; specialUse?: string }[]>>({});
 
-  const privateInboxes = inboxes.filter(i => i.type === 'private');
+  const privateInboxes = useMemo(() => inboxes.filter(i => i.type === 'private'), [inboxes]);
 
   // Group shared inboxes by team (for labels)
-  const teamsMap = new Map<string, { id: string; name: string }>();
-  inboxes.forEach(inbox => {
-    if (inbox.type === 'shared' && inbox.team) {
-      if (!teamsMap.has(inbox.team.id)) {
-        teamsMap.set(inbox.team.id, inbox.team);
+  const teams = useMemo(() => {
+    const teamsMap = new Map<string, { id: string; name: string }>();
+    inboxes.forEach(inbox => {
+      if (inbox.type === 'shared' && inbox.team) {
+        if (!teamsMap.has(inbox.team.id)) {
+          teamsMap.set(inbox.team.id, inbox.team);
+        }
       }
-    }
-  });
-  const teams = Array.from(teamsMap.values());
+    });
+    return Array.from(teamsMap.values());
+  }, [inboxes]);
 
   // Fetch labels for the first team (for now, assume user is in one team)
   // Also fetch pinned threads

@@ -7,7 +7,7 @@ import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { verifySupabaseToken } from "../middleware/auth.middleware.js";
 import { connection as redisConnection } from "../services/queue.service.js";
 import { encrypt, decrypt } from "../utils/encryption.js";
-
+import { smtpClient } from "../mail/SmtpClient.js";
 export const shopifyRouter: Router = Router();
 
 // Decrypt access_token on a connection object (safe no-op if already plaintext)
@@ -211,7 +211,10 @@ shopifyRouter.get("/auth/callback", async (req, res) => {
 
     await redisConnection.del(`shopify_oauth:${shop}`);
 
-    const frontendUrl = process.env.FRONTEND_URL || "https://mail.tim-regener.com";
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      console.error("[Shopify OAuth] FRONTEND_URL is not set");
+    }
     res.redirect(`${frontendUrl}/settings/integrations?shopify_success=true`);
   } catch (error) {
     console.error("Shopify OAuth callback error", error);
@@ -675,11 +678,35 @@ shopifyRouter.get("/order-communication", async (req, res) => {
     return res.status(400).json({ error: "Invalid shop domain" });
   }
 
-  // Shared secret check — mandatory, not conditional
-  const extensionKey = (req.headers["x-teammail-extension-key"] as string) || (req.query.key as string);
-  const expectedKey = process.env.SHOPIFY_EXTENSION_SECRET;
-  if (!expectedKey || !extensionKey || extensionKey !== expectedKey) {
-    return res.status(401).json({ error: "Unauthorized" });
+  const authHeader = req.headers["authorization"] as string;
+  console.log("TEAMMAIL SERVER DEBUG (order-communication): authHeader =", authHeader, "all headers =", req.headers);
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing authorization token" });
+  }
+
+  const sessionToken = authHeader.replace("Bearer ", "");
+  let tokenPayload: any;
+  try {
+    // Decode and verify the Shopify session token
+    // The token is a JWT signed by Shopify, we verify the iss (issuer) matches the shop
+    const parts = sessionToken.split(".");
+    if (parts.length !== 3) throw new Error("Invalid token format");
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+    
+    // Verify the token hasn't expired
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      return res.status(401).json({ error: "Token expired" });
+    }
+    
+    // Verify issuer matches the shop domain
+    const issShop = payload.iss?.replace("https://", "").replace("/admin", "");
+    if (!issShop || (shopDomain && issShop !== shopDomain)) {
+      return res.status(401).json({ error: "Token shop mismatch" });
+    }
+    
+    tokenPayload = payload;
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid session token" });
   }
 
   console.log("[OrderComm] Request:", { shopDomain, customerEmail, orderId, orderName });
@@ -767,6 +794,145 @@ shopifyRouter.get("/order-communication", async (req, res) => {
   } catch (error) {
     console.error("Shopify Order Communication Error:", error);
     res.status(500).json({ error: "Failed to fetch order communication" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Fetch Templates for Order Communication
+// ---------------------------------------------------------------------------
+
+shopifyRouter.get("/order-communication/templates", async (req, res) => {
+  const shopDomain = req.query.shop as string;
+  if (!shopDomain) return res.status(400).json({ error: "Missing shop parameter" });
+
+  const authHeader = req.headers["authorization"] as string;
+  console.log("TEAMMAIL SERVER DEBUG (templates): authHeader =", authHeader);
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing authorization token" });
+  }
+
+  const sessionToken = authHeader.replace("Bearer ", "");
+  try {
+    const parts = sessionToken.split(".");
+    if (parts.length !== 3) throw new Error("Invalid token format");
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      return res.status(401).json({ error: "Token expired" });
+    }
+    const issShop = payload.iss?.replace("https://", "").replace("/admin", "");
+    if (!issShop || issShop !== shopDomain) {
+      return res.status(401).json({ error: "Token shop mismatch" });
+    }
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid session token" });
+  }
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data: rawConnection } = await supabase
+      .from("shopify_connections")
+      .select("team_id")
+      .eq("shop_domain", shopDomain)
+      .single();
+
+    if (!rawConnection) return res.status(404).json({ error: "Shop not connected" });
+
+    const { data: templates, error } = await supabase
+      .from("templates")
+      .select("*")
+      .eq("team_id", rawConnection.team_id)
+      .eq("scope", "team")
+      .eq("show_in_shopify", true)
+      .order("name");
+
+    if (error) throw error;
+    res.json({ templates: templates || [] });
+  } catch (error) {
+    console.error("Shopify Templates Fetch Error:", error);
+    res.status(500).json({ error: "Failed to fetch templates" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Send Email from Order Communication
+// ---------------------------------------------------------------------------
+
+shopifyRouter.post("/order-communication/send", async (req, res) => {
+  const { shopDomain, subject, to, bodyText, inReplyTo, references } = req.body;
+  
+  if (!shopDomain || !subject || !to || !bodyText) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const authHeader = req.headers["authorization"] as string;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing authorization token" });
+  }
+
+  const sessionToken = authHeader.replace("Bearer ", "");
+  try {
+    const parts = sessionToken.split(".");
+    if (parts.length !== 3) throw new Error("Invalid token format");
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      return res.status(401).json({ error: "Token expired" });
+    }
+    const issShop = payload.iss?.replace("https://", "").replace("/admin", "");
+    if (!issShop || issShop !== shopDomain) {
+      return res.status(401).json({ error: "Token shop mismatch" });
+    }
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid session token" });
+  }
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data: rawConnection } = await supabase
+      .from("shopify_connections")
+      .select("team_id")
+      .eq("shop_domain", shopDomain)
+      .single();
+
+    if (!rawConnection) return res.status(404).json({ error: "Shop not connected" });
+
+    // Find the default shared inbox for this team
+    const { data: inboxes } = await supabase
+      .from("inboxes")
+      .select("id")
+      .eq("team_id", rawConnection.team_id)
+      .eq("type", "shared")
+      .limit(1);
+
+    if (!inboxes || inboxes.length === 0) {
+      return res.status(400).json({ error: "No shared inbox configured for this team" });
+    }
+    
+    const inboxId = inboxes[0].id;
+    
+    // Find the primary alias
+    const { data: aliases } = await supabase
+      .from("inbox_aliases")
+      .select("email_address")
+      .eq("inbox_id", inboxId)
+      .limit(1);
+
+    const fromAddress = aliases && aliases.length > 0 ? aliases[0].email_address : undefined;
+
+    await smtpClient.sendEmail({
+      inboxId,
+      teamId: rawConnection.team_id,
+      to,
+      subject,
+      bodyText,
+      inReplyTo,
+      references,
+      fromAddress,
+    });
+
+    res.json({ success: true, message: "Email sent successfully" });
+  } catch (error) {
+    console.error("Shopify Order Communication Send Error:", error);
+    res.status(500).json({ error: safeErrorMessage(error) });
   }
 });
 

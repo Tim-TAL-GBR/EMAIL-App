@@ -1,10 +1,11 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { useTeams } from '../../../hooks/useTeams';
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 const INTEGRATIONS = [
   { name: 'Shopify', color: '#96BF48' },

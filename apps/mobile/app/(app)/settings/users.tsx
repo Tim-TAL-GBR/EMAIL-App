@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -6,7 +7,7 @@ import {
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 interface Team {
   id: string;

@@ -1,10 +1,11 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, Switch } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout, BorderRadius } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 interface ContextEntry {
   id: string;
@@ -192,8 +193,8 @@ export default function AISettingsScreen() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const baseUrl = `${API_URL}/api/ai/org/${selectedOrgId}/context`;
-      const url = editingId ? `${baseUrl}/${editingId}` : baseUrl;
+      const urlBase = `${API_URL}/api/ai/org/${selectedOrgId}/context`;
+      const url = editingId ? `${urlBase}/${editingId}` : urlBase;
       const res = await fetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },

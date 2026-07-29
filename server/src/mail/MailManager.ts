@@ -4,6 +4,7 @@ import { decrypt } from "../utils/encryption.js";
 
 export class MailManager {
   private clients: Map<string, ImapClient> = new Map();
+  private restarting: Set<string> = new Set();
 
   /**
    * Initializes IMAP connections for all inboxes with configured credentials.
@@ -60,38 +61,48 @@ export class MailManager {
    * Useful when credentials have been updated.
    */
   public async restartClient(inboxId: string): Promise<void> {
-    console.log(`[MailManager] Restarting client for inbox ${inboxId}...`);
-    
-    // Disconnect existing if any
-    const existingClient = this.clients.get(inboxId);
-    if (existingClient) {
-      await existingClient.disconnect();
-      this.clients.delete(inboxId);
-    }
-
-    // Fetch new credentials from DB
-    const supabase = getSupabaseAdmin();
-    const { data: inbox, error } = await supabase
-      .from("inboxes")
-      .select("id, team_id, imap_host, imap_port, imap_user, imap_pass, sync_since, imap_secure")
-      .eq("id", inboxId)
-      .single();
-
-    if (error || !inbox || !inbox.imap_host || !inbox.imap_user || !inbox.imap_pass) {
-      console.log(`[MailManager] Cannot start client for ${inboxId}: missing credentials.`);
+    if (this.restarting.has(inboxId)) {
+      console.log(`[MailManager] Restart for inbox ${inboxId} is already in progress.`);
       return;
     }
+    this.restarting.add(inboxId);
 
-    this.addClient({
-      inboxId: inbox.id,
-      teamId: inbox.team_id,
-      host: inbox.imap_host,
-      port: inbox.imap_port || 993,
-      user: inbox.imap_user,
-      pass: decrypt(inbox.imap_pass),
-      sync_since: inbox.sync_since,
-      secure: inbox.imap_secure !== false,
-    });
+    try {
+      console.log(`[MailManager] Restarting client for inbox ${inboxId}...`);
+      
+      // Disconnect existing if any
+      const existingClient = this.clients.get(inboxId);
+      if (existingClient) {
+        await existingClient.disconnect();
+        this.clients.delete(inboxId);
+      }
+
+      // Fetch new credentials from DB
+      const supabase = getSupabaseAdmin();
+      const { data: inbox, error } = await supabase
+        .from("inboxes")
+        .select("id, team_id, imap_host, imap_port, imap_user, imap_pass, sync_since, imap_secure")
+        .eq("id", inboxId)
+        .single();
+
+      if (error || !inbox || !inbox.imap_host || !inbox.imap_user || !inbox.imap_pass) {
+        console.log(`[MailManager] Cannot start client for ${inboxId}: missing credentials.`);
+        return;
+      }
+
+      this.addClient({
+        inboxId: inbox.id,
+        teamId: inbox.team_id,
+        host: inbox.imap_host,
+        port: inbox.imap_port || 993,
+        user: inbox.imap_user,
+        pass: decrypt(inbox.imap_pass),
+        sync_since: inbox.sync_since,
+        secure: inbox.imap_secure !== false,
+      });
+    } finally {
+      this.restarting.delete(inboxId);
+    }
   }
 
   /**

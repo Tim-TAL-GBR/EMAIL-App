@@ -7,6 +7,8 @@
 
 import { Platform, type TextStyle } from 'react-native';
 
+export const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 // ─── Color Palette ──────────────────────────────────────────────────────────
 
 /** Core color tokens – light mode first, premium aesthetic */

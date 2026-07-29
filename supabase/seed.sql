@@ -1,6 +1,10 @@
 -- =============================================================================
 -- TeamMail – Seed-Daten für Entwicklung
 -- =============================================================================
+-- ⚠️  WARNUNG: Diese Datei enthält TEST-ZUGANGSDATEN und darf NIEMALS in
+-- ⚠️  einer Production-Umgebung ausgeführt werden! Nur für lokale Entwicklung!
+-- ⚠️  CI/CD Pipelines müssen diese Datei explizit ausschließen.
+-- =============================================================================
 -- WICHTIG: Diese Datei muss mit service_role Rechten ausgeführt werden!
 -- Supabase CLI führt `supabase db seed` automatisch als service_role aus,
 -- wodurch RLS-Policies umgangen werden.

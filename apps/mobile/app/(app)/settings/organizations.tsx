@@ -1,9 +1,10 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 async function apiRequest(path: string, method = 'GET', body?: object) {
   try {

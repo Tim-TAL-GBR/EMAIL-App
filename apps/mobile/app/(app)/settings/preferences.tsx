@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
@@ -8,7 +9,7 @@ const TABS = [
   'Benachrichtigungen', 'Tastenkürzel', 'Snoozes', 'Suche', 'Wischgesten'
 ];
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 type PrefValue = boolean | string | number;
 type Preferences = Record<string, PrefValue>;

@@ -1,7 +1,8 @@
+import { API_URL } from "@/lib/constants";
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 export interface TeamData {
   id: string;

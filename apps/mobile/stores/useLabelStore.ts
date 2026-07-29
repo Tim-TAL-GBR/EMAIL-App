@@ -1,8 +1,9 @@
+import { API_URL } from "@/lib/constants";
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from './authStore';
 
-const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 
 export interface Label {
   id: string;

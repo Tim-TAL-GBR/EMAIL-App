@@ -41,6 +41,27 @@ userRouter.get("/", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// DELETE /api/users/me - Delete own account permanently
+// ---------------------------------------------------------------------------
+userRouter.delete("/me", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const supabase = getSupabaseAdmin();
+
+    const { error } = await supabase.auth.admin.deleteUser(userId);
+
+    if (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+      return;
+    }
+
+    res.json({ message: "Benutzerkonto wurde endgültig gelöscht" });
+  } catch (err: any) {
+    res.status(500).json({ error: safeErrorMessage(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /api/users/:id - Delete a user permanently (System Admin)
 // ---------------------------------------------------------------------------
 userRouter.delete("/:id", async (req, res) => {
@@ -84,27 +105,6 @@ userRouter.delete("/:id", async (req, res) => {
     }
 
     res.json({ message: "Benutzer wurde endgültig gelöscht" });
-  } catch (err: any) {
-    res.status(500).json({ error: safeErrorMessage(err) });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// DELETE /api/users/me - Delete own account permanently
-// ---------------------------------------------------------------------------
-userRouter.delete("/me", async (req, res) => {
-  try {
-    const userId = req.user!.sub;
-    const supabase = getSupabaseAdmin();
-
-    const { error } = await supabase.auth.admin.deleteUser(userId);
-
-    if (error) {
-      res.status(500).json({ error: safeErrorMessage(error) });
-      return;
-    }
-
-    res.json({ message: "Benutzerkonto wurde endgültig gelöscht" });
   } catch (err: any) {
     res.status(500).json({ error: safeErrorMessage(err) });
   }

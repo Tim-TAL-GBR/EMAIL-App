@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Modal, KeyboardAvoidingView, Platform, ScrollView, Switch } from 'react-native';
 import { Colors, Spacing, BorderRadius, FontFamily, FontSize, FontWeight } from '../../lib/constants';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
@@ -11,6 +11,7 @@ interface Template {
   subject: string | null;
   body: string;
   scope: 'private' | 'team';
+  show_in_shopify: boolean;
 }
 
 interface TemplateModalProps {
@@ -23,6 +24,7 @@ export function TemplateModal({ visible, onClose, template }: TemplateModalProps
   const [name, setName] = useState(template?.name ?? '');
   const [subject, setSubject] = useState(template?.subject ?? '');
   const [body, setBody] = useState(template?.body ?? '');
+  const [showInShopify, setShowInShopify] = useState(template?.show_in_shopify ?? false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +39,7 @@ export function TemplateModal({ visible, onClose, template }: TemplateModalProps
       if (isEditing) {
         const { error: updateError } = await supabase
           .from('templates')
-          .update({ name: name.trim(), subject: subject.trim() || null, body: body.trim() })
+          .update({ name: name.trim(), subject: subject.trim() || null, body: body.trim(), show_in_shopify: showInShopify })
           .eq('id', template!.id);
         if (updateError) throw updateError;
       } else {
@@ -45,7 +47,7 @@ export function TemplateModal({ visible, onClose, template }: TemplateModalProps
         if (!user) throw new Error('Not authenticated');
         const { error: insertError } = await supabase
           .from('templates')
-          .insert({ name: name.trim(), subject: subject.trim() || null, body: body.trim(), scope: 'private', owner_id: user.id });
+          .insert({ name: name.trim(), subject: subject.trim() || null, body: body.trim(), scope: 'private', owner_id: user.id, show_in_shopify: showInShopify });
         if (insertError) throw insertError;
       }
       onClose();
@@ -73,6 +75,18 @@ export function TemplateModal({ visible, onClose, template }: TemplateModalProps
           <Input label="Name" placeholder="z.B. Standard-Antwort" value={name} onChangeText={setName} />
           <Input label="Betreff (optional)" placeholder="Re: {{subject}}" value={subject} onChangeText={setSubject} />
           <Input label="Text" placeholder="Vorlagentext schreiben..." value={body} onChangeText={setBody} multiline style={styles.bodyInput} />
+          
+          <View style={styles.switchContainer}>
+            <View style={styles.switchTextContainer}>
+              <Text style={styles.switchLabel}>In Shopify anzeigen</Text>
+              <Text style={styles.switchDescription}>Macht diese Vorlage im E-Mail Formular in Shopify verfügbar.</Text>
+            </View>
+            <Switch
+              value={showInShopify}
+              onValueChange={setShowInShopify}
+              trackColor={{ false: Colors.border, true: Colors.primary }}
+            />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
@@ -93,4 +107,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md, marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.error,
   },
   errorText: { color: Colors.error, fontFamily: FontFamily, fontSize: FontSize.sm },
+  switchContainer: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.border, marginTop: Spacing.md,
+  },
+  switchTextContainer: { flex: 1, paddingRight: Spacing.md },
+  switchLabel: { fontFamily: FontFamily, fontSize: FontSize.md, fontWeight: FontWeight.medium, color: Colors.text },
+  switchDescription: { fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2 },
 });

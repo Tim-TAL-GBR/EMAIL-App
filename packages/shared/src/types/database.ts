@@ -948,6 +948,7 @@ export type Database = {
           subject: string | null
           team_id: string | null
           updated_at: string | null
+          show_in_shopify: boolean
         }
         Insert: {
           body: string
@@ -959,6 +960,7 @@ export type Database = {
           subject?: string | null
           team_id?: string | null
           updated_at?: string | null
+          show_in_shopify?: boolean
         }
         Update: {
           body?: string
@@ -970,6 +972,7 @@ export type Database = {
           subject?: string | null
           team_id?: string | null
           updated_at?: string | null
+          show_in_shopify?: boolean
         }
         Relationships: [
           {

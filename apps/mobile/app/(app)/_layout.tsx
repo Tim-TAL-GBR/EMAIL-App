@@ -57,7 +57,6 @@ export default function AppLayout() {
             headerLeft: backBtn,
           }} />
           <Stack.Screen name="settings" options={{ title: 'Einstellungen', headerShown: false }} />
-          <Stack.Screen name="templates/index" options={{ title: 'Vorlagen' }} />
         </Stack>
       </View>
     </View>

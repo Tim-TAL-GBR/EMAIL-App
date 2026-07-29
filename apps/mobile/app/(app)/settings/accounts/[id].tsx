@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -69,8 +70,8 @@ export default function SettingsInboxDetail() {
     setTesting(true);
     try {
       // Use EXPO_PUBLIC_SERVER_URL or fallback to localhost
-      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${backendUrl}/api/mail/test-connection`, {
+      
+      const response = await fetch(`${API_URL}/api/mail/test-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -142,8 +143,8 @@ export default function SettingsInboxDetail() {
     
     // 2. Restart backend client
     try {
-      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      await fetch(`${backendUrl}/api/mail/restart-client`, {
+      
+      await fetch(`${API_URL}/api/mail/restart-client`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

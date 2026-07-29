@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/constants";
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, ScrollView, Image, TextInput, Platform } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../lib/constants';
@@ -45,9 +46,9 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
       try {
         setLoading(true);
         setError(null);
-        const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
         
-        const response = await fetch(`${baseUrl}/api/shopify/customer?email=${encodeURIComponent(email)}&team_id=${teamId}`, {
+        
+        const response = await fetch(`${API_URL}/api/shopify/customer?email=${encodeURIComponent(email)}&team_id=${teamId}`, {
           headers: {
             'Authorization': `Bearer ${session?.access_token}`
           }
@@ -82,8 +83,8 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
       setOrderDetailLoading(true);
       setOrderDetail(null);
       setSelectedOrderId(orderId);
-      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/shopify/order/detail?order_id=${encodeURIComponent(orderId)}&team_id=${teamId}`, {
+      
+      const response = await fetch(`${API_URL}/api/shopify/order/detail?order_id=${encodeURIComponent(orderId)}&team_id=${teamId}`, {
         headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
       if (!response.ok) throw new Error('Failed to fetch order');
@@ -103,8 +104,8 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
       if (!window.confirm('Bestellung wirklich in Shopify stornieren?')) return;
       try {
         setCancelling(true);
-        const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-        const response = await fetch(`${baseUrl}/api/shopify/order/cancel`, {
+        
+        const response = await fetch(`${API_URL}/api/shopify/order/cancel`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -135,8 +136,8 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
             onPress: async () => {
               try {
                 setCancelling(true);
-                const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-                const response = await fetch(`${baseUrl}/api/shopify/order/cancel`, {
+                
+                const response = await fetch(`${API_URL}/api/shopify/order/cancel`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -173,8 +174,8 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
     if (!selectedOrderId || !teamId) return;
     try {
       setUpdating(true);
-      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/shopify/order/update`, {
+      
+      const response = await fetch(`${API_URL}/api/shopify/order/update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

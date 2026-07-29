@@ -54,17 +54,22 @@ export class SmtpClient {
 
     let mailAttachments: any[] = [];
     if (params.attachments && params.attachments.length > 0) {
-      for (const att of params.attachments) {
-        const { data: urlData } = await supabase.storage
-          .from("email_attachments")
-          .createSignedUrl(att.storage_path, 3600);
-          
-        if (urlData?.signedUrl) {
-          mailAttachments.push({
-            filename: att.file_name,
-            href: urlData.signedUrl,
-            contentType: att.content_type
-          });
+      const paths = params.attachments.map((att: any) => att.storage_path);
+      const { data: urlsData } = await supabase.storage
+        .from("email_attachments")
+        .createSignedUrls(paths, 3600);
+        
+      if (urlsData) {
+        for (let i = 0; i < params.attachments.length; i++) {
+          const att = params.attachments[i];
+          const urlData = urlsData.find((u: any) => u.path === att.storage_path);
+          if (urlData?.signedUrl) {
+            mailAttachments.push({
+              filename: att.file_name,
+              href: urlData.signedUrl,
+              contentType: att.content_type
+            });
+          }
         }
       }
     }

@@ -641,6 +641,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               autoComplete="new-password"
               autoCapitalize="none"
               autoCorrect={false}
+              maxLength={254}
             />
             {invalidTo.length > 0 && (
               <Text style={styles.validationHint}>{invalidTo.join(', ')}</Text>
@@ -671,6 +672,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
               autoComplete="new-password"
               autoCapitalize="none"
               autoCorrect={false}
+              maxLength={254}
             />
             {invalidCc.length > 0 && (
               <Text style={styles.validationHint}>{invalidCc.join(', ')}</Text>
@@ -705,6 +707,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
                 autoComplete="new-password"
                 autoCapitalize="none"
                 autoCorrect={false}
+                maxLength={254}
               />
               {invalidBcc.length > 0 && (
                 <Text style={styles.validationHint}>{invalidBcc.join(', ')}</Text>
@@ -730,6 +733,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
             value={subject}
             onChangeText={onSubjectChange}
             placeholder="Betreff"
+            maxLength={500}
           />
         </View>
 
@@ -740,6 +744,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           multiline
           placeholder="Schreibe deine Nachricht hier..."
           textAlignVertical="top"
+          maxLength={100000}
         />
 
         {aiError && (

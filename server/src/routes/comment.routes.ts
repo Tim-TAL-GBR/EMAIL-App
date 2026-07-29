@@ -2,6 +2,8 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { canAccessEmail } from "../realtime/guards.js";
+import { validateBody } from "../middleware/validate.middleware.js";
+import { z } from "zod";
 
 export const commentRouter: Router = Router();
 
@@ -42,15 +44,10 @@ commentRouter.get("/", async (req, res) => {
   }
 });
 
-commentRouter.post("/", async (req, res) => {
+commentRouter.post("/", validateBody(z.object({ email_id: z.string().uuid(), body: z.string().min(1) })), async (req, res) => {
   try {
     const userId = req.user!.sub;
     const { email_id, body } = req.body;
-
-    if (!email_id || !body) {
-      res.status(400).json({ error: "email_id and body are required" });
-      return;
-    }
 
     if (body.length > 10000) {
       res.status(400).json({ error: "Comment body must be 10000 characters or less" });

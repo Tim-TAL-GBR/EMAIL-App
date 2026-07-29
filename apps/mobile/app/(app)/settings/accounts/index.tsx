@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/constants";
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, ActivityIndicator, Alert, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -144,7 +145,7 @@ export default function AccountsSettingsScreen() {
     setIsLoadingFolders(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+      
       const res = await fetch(`${API_URL}/api/inboxes/${account.id}/folders`, {
         headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
@@ -313,8 +314,8 @@ export default function AccountsSettingsScreen() {
       if (isNaN(Date.parse(archiveDate))) {
         throw new Error('Ungültiges Datum. Bitte YYYY-MM-DD verwenden.');
       }
-      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
-      const response = await fetch(`${backendUrl}/api/inboxes/${account.id}/archive-bulk`, {
+      const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
+      const response = await fetch(`${API_URL}/api/inboxes/${account.id}/archive-bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -384,8 +385,8 @@ export default function AccountsSettingsScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Nicht eingeloggt');
 
-      const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${backendUrl}/api/inboxes/${account.id}/credentials`, {
+      
+      const response = await fetch(`${API_URL}/api/inboxes/${account.id}/credentials`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -409,7 +410,7 @@ export default function AccountsSettingsScreen() {
       if (!response.ok) throw new Error(data.error || 'Fehler beim Speichern');
 
       // Trigger IMAP reconnect on backend
-      await fetch(`${backendUrl}/api/inboxes/${account.id}/reconnect`, {
+      await fetch(`${API_URL}/api/inboxes/${account.id}/reconnect`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`
@@ -445,8 +446,8 @@ export default function AccountsSettingsScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         // Use EXPO_PUBLIC_SERVER_URL or fallback to localhost
-        const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-        fetch(`${backendUrl}/api/inboxes/${account.id}/reconnect`, {
+        
+        fetch(`${API_URL}/api/inboxes/${account.id}/reconnect`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${session.access_token}`
@@ -1066,9 +1067,9 @@ export default function AccountsSettingsScreen() {
       { text: 'Abbrechen', style: 'cancel' },
       { text: 'Löschen', style: 'destructive', onPress: async () => {
           try {
-            const backendUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+            
             const { data: { session } } = await supabase.auth.getSession();
-            const response = await fetch(`${backendUrl}/api/inboxes/${account.id}`, {
+            const response = await fetch(`${API_URL}/api/inboxes/${account.id}`, {
               method: 'DELETE',
               headers: { 'Authorization': `Bearer ${session?.access_token}` },
             });

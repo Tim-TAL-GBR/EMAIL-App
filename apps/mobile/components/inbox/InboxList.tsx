@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import { API_URL } from "@/lib/constants";
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, StyleSheet, SectionList, RefreshControl, ScrollView, Text, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
@@ -82,19 +83,35 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchText, setSearchText] = useState('');
 
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      if (menuTimerRef.current) clearTimeout(menuTimerRef.current);
+    };
+  }, []);
+
+  const scheduleMenu = useCallback((setter: (val: boolean) => void) => {
+    if (menuTimerRef.current) clearTimeout(menuTimerRef.current);
+    menuTimerRef.current = setTimeout(() => setter(true), 300);
+  }, []);
+
   const triggerSync = async () => {
     if (!activeContextId || activeContextType !== 'private_inbox') return;
     setIsSyncing(true);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/inboxes/${activeContextId}/reconnect`, {
+      
+      const response = await fetch(`${API_URL}/api/inboxes/${activeContextId}/reconnect`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
         }
       });
       if (response.ok) {
-        setTimeout(() => {
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = setTimeout(() => {
            handleRefresh();
            setIsSyncing(false);
         }, 2000);
@@ -305,6 +322,32 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     }));
   }, [filteredThreads, drafts, activeFilter]);
 
+  const renderItem = useCallback(({ item }: any) => {
+    if (activeFilter === 'drafts') {
+      return (
+        <DraftListItem
+          draft={item as any}
+          onPress={() => openComposerForDraft(item)}
+          onDelete={async () => {
+            const draftItem = item as any;
+            if (draftItem.id) {
+              await supabase.from('drafts').delete().eq('id', draftItem.id);
+              refetchDrafts();
+            }
+          }}
+        />
+      );
+    }
+    return (
+      <EmailListItem 
+        thread={item as any} 
+        isSelected={item.id === selectedEmailId}
+        onPress={() => handleEmailPress(item.id)} 
+        onContextMenu={handleContextMenu}
+      />
+    );
+  }, [activeFilter, selectedEmailId, openComposerForDraft, refetchDrafts, handleEmailPress, handleContextMenu]);
+
   return (
     <View style={styles.container}>
       {activeContextType === 'private_inbox' && (
@@ -348,31 +391,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
             <Text style={styles.sectionHeaderText}>{title}</Text>
           </View>
         )}
-        renderItem={({ item }) => {
-          if (activeFilter === 'drafts') {
-            return (
-              <DraftListItem
-                draft={item as any}
-                onPress={() => openComposerForDraft(item)}
-                onDelete={async () => {
-                  const draftItem = item as any;
-                  if (draftItem.id) {
-                    await supabase.from('drafts').delete().eq('id', draftItem.id);
-                    refetchDrafts();
-                  }
-                }}
-              />
-            );
-          }
-          return (
-            <EmailListItem 
-              thread={item as any} 
-              isSelected={item.id === selectedEmailId}
-              onPress={() => handleEmailPress(item.id)} 
-              onContextMenu={handleContextMenu}
-            />
-          );
-        }}
+        renderItem={renderItem}
         refreshControl={
           <RefreshControl 
             refreshing={activeFilter === 'drafts' ? draftsLoading : isLoading} 
@@ -438,7 +457,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
           } },
           { id: 'snooze', label: 'Snooze', icon: 'clock', onPress: () => {
             setContextMenuVisible(false);
-            setTimeout(() => setContextSnoozeMenuVisible(true), 300);
+            scheduleMenu(setContextSnoozeMenuVisible);
           } },
           { id: 'star', label: contextMenuThread?.is_starred ? 'Stern entfernen' : 'Stern markieren', icon: 'star', onPress: () => {
             if (contextMenuThread) toggleStar(contextMenuThread.latestEmail.id);
@@ -456,21 +475,21 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
           } },
           { id: 'label', label: 'Label vergeben', icon: 'tag', onPress: () => {
             setContextMenuVisible(false);
-            setTimeout(() => setContextLabelMenuVisible(true), 300);
+            scheduleMenu(setContextLabelMenuVisible);
           } },
           { id: 'move', label: 'Verschieben nach', icon: 'folder', onPress: () => {
             setContextMenuVisible(false);
-            setTimeout(() => setContextMoveMenuVisible(true), 300);
+            scheduleMenu(setContextMoveMenuVisible);
           } },
           { id: 'assign', label: 'Zuweisen an...', icon: 'user', onPress: () => {
             setContextMenuVisible(false);
-            setTimeout(() => setContextAssignVisible(true), 300);
+            scheduleMenu(setContextAssignVisible);
           } },
           { id: 'rule', label: 'Regel erstellen', icon: 'filter', onPress: () => {
             setContextMenuVisible(false);
             if (contextMenuThread) {
               setRuleInitialCondition({ field: 'from', operator: 'equals', value: contextMenuThread.latestEmail.from_address });
-              setTimeout(() => setRuleComposerVisible(true), 300);
+              scheduleMenu(setRuleComposerVisible);
             }
           } },
         ]}

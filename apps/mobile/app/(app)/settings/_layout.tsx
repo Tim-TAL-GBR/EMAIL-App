@@ -21,6 +21,7 @@ export const SETTINGS_PAGES = [
     { label: 'Gäste', href: '/settings/guests' },
     { label: 'Teams', href: '/settings/teams' },
     { label: 'Labels', href: '/settings/labels' },
+    { label: 'Vorlagen', href: '/settings/templates' },
     { label: 'KI', href: '/settings/ai' },
     { label: 'Regeln', href: '/settings/rules' },
     { label: 'Signaturen', href: '/settings/signatures' },

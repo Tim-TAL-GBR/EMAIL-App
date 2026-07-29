@@ -700,23 +700,26 @@ teamRouter.get("/:id/available-users", async (req, res) => {
       return;
     }
 
-    // Get all members of the parent org (direct or via sub-teams)
-    const { data: orgMembers } = await supabase
-      .from("team_members")
-      .select("user_id")
-      .eq("team_id", team.parent_id);
-
-    // Also get members of sibling sub-teams
-    const { data: siblingTeams } = await supabase
-      .from("teams")
-      .select("id")
-      .eq("parent_id", team.parent_id);
+    // Get all members of the parent org, sibling teams, and current team concurrently
+    const [
+      { data: orgMembers },
+      { data: siblingTeams },
+      { data: teamMembers }
+    ] = await Promise.all([
+      supabase.from("team_members").select("user_id").eq("team_id", team.parent_id),
+      supabase.from("teams").select("id").eq("parent_id", team.parent_id),
+      supabase.from("team_members").select("user_id").eq("team_id", teamId)
+    ]);
 
     const siblingIds = (siblingTeams || []).map((t: any) => t.id);
-    const { data: siblingMembers } = await supabase
-      .from("team_members")
-      .select("user_id")
-      .in("team_id", siblingIds);
+    let siblingMembers: any[] = [];
+    if (siblingIds.length > 0) {
+      const { data } = await supabase
+        .from("team_members")
+        .select("user_id")
+        .in("team_id", siblingIds);
+      siblingMembers = data || [];
+    }
 
     // Combine all org-level user IDs
     const orgUserIds = new Set([
@@ -724,20 +727,18 @@ teamRouter.get("/:id/available-users", async (req, res) => {
       ...(siblingMembers || []).map((m: any) => m.user_id),
     ]);
 
-    // Get profiles for org members
-    const { data: orgProfiles } = await supabase
-      .from("profiles")
-      .select("id, email, display_name, avatar_url")
-      .in("id", Array.from(orgUserIds));
-
     // Remove users already in this team
-    const { data: teamMembers } = await supabase
-      .from("team_members")
-      .select("user_id")
-      .eq("team_id", teamId);
-
     const memberIds = new Set((teamMembers || []).map((m: any) => m.user_id));
-    const available = (orgProfiles || []).filter((p: any) => !memberIds.has(p.id));
+    const availableUserIds = Array.from(orgUserIds).filter(id => !memberIds.has(id));
+
+    let available: any[] = [];
+    if (availableUserIds.length > 0) {
+      const { data: orgProfiles } = await supabase
+        .from("profiles")
+        .select("id, email, display_name, avatar_url")
+        .in("id", availableUserIds);
+      available = orgProfiles || [];
+    }
 
     res.json(available);
   } catch (err: any) {

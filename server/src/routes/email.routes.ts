@@ -4,6 +4,8 @@ import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { canAccessEmail } from "../realtime/guards.js";
 import { ImapClient } from "../mail/ImapClient.js";
+import { validateBody } from "../middleware/validate.middleware.js";
+import { z } from "zod";
 
 export const emailRouter: Router = Router();
 
@@ -39,16 +41,11 @@ emailRouter.get("/:emailId", async (req, res) => {
   }
 });
 
-emailRouter.patch("/:emailId/status", async (req, res) => {
+emailRouter.patch("/:emailId/status", validateBody(z.object({ status: z.enum(['open', 'in_progress', 'done']) })), async (req, res) => {
   try {
     const userId = req.user!.sub;
-    const { emailId } = req.params;
+    const emailId = req.params.emailId as string;
     const { status } = req.body;
-
-    if (!status || !["open", "in_progress", "done"].includes(status)) {
-      res.status(400).json({ error: "Invalid status. Must be open, in_progress, or done" });
-      return;
-    }
 
     const hasAccess = await canAccessEmail(userId, emailId);
     if (!hasAccess) {
@@ -74,16 +71,11 @@ emailRouter.patch("/:emailId/status", async (req, res) => {
   }
 });
 
-emailRouter.post("/:emailId/assign", async (req, res) => {
+emailRouter.post("/:emailId/assign", validateBody(z.object({ assignedTo: z.string().uuid() })), async (req, res) => {
   try {
     const userId = req.user!.sub;
-    const { emailId } = req.params;
+    const emailId = req.params.emailId as string;
     const { assignedTo } = req.body;
-
-    if (!assignedTo) {
-      res.status(400).json({ error: "assignedTo is required" });
-      return;
-    }
 
     const hasAccess = await canAccessEmail(userId, emailId);
     if (!hasAccess) {
