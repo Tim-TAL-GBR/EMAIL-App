@@ -34,6 +34,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      custom_roles: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          permissions: Json
+          team_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          permissions?: Json
+          team_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          permissions?: Json
+          team_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_roles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drafts: {
         Row: {
           bcc_addresses: string[] | null
@@ -624,6 +662,7 @@ export type Database = {
           display_name: string | null
           email: string
           id: string
+          is_super_admin: boolean
           updated_at: string | null
         }
         Insert: {
@@ -632,6 +671,7 @@ export type Database = {
           display_name?: string | null
           email: string
           id: string
+          is_super_admin?: boolean
           updated_at?: string | null
         }
         Update: {
@@ -640,6 +680,7 @@ export type Database = {
           display_name?: string | null
           email?: string
           id?: string
+          is_super_admin?: boolean
           updated_at?: string | null
         }
         Relationships: []
@@ -886,24 +927,34 @@ export type Database = {
       }
       team_members: {
         Row: {
+          custom_role_id: string | null
           joined_at: string
           role: Database["public"]["Enums"]["team_role"]
           team_id: string
           user_id: string
         }
         Insert: {
+          custom_role_id?: string | null
           joined_at?: string
           role?: Database["public"]["Enums"]["team_role"]
           team_id: string
           user_id: string
         }
         Update: {
+          custom_role_id?: string | null
           joined_at?: string
           role?: Database["public"]["Enums"]["team_role"]
           team_id?: string
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "team_members_custom_role_id_fkey"
+            columns: ["custom_role_id"]
+            isOneToOne: false
+            referencedRelation: "custom_roles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "team_members_team_id_fkey"
             columns: ["team_id"]

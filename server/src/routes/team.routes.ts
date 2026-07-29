@@ -147,6 +147,7 @@ teamRouter.get("/:id/members", async (req, res) => {
       .from("team_members")
       .select(`
         role,
+        custom_role_id,
         joined_at,
         profiles (
           id, email, display_name, avatar_url
@@ -163,6 +164,7 @@ teamRouter.get("/:id/members", async (req, res) => {
     const members = data?.map((tm) => ({
       ...(tm.profiles as any),
       role: tm.role,
+      custom_role_id: tm.custom_role_id,
       joinedAt: tm.joined_at,
       isMe: (tm.profiles as any)?.id === userId,
     })) ?? [];
@@ -382,7 +384,7 @@ teamRouter.patch("/:id/members/:memberId", async (req, res) => {
     const userId = req.user!.sub;
     const teamId = req.params.id;
     const memberId = req.params.memberId;
-    const { role } = req.body;
+    const { role, custom_role_id } = req.body;
 
     if (!role || !["owner", "admin", "member"].includes(role)) {
       res.status(400).json({ error: "Ungültige Rolle" });
@@ -457,7 +459,7 @@ teamRouter.patch("/:id/members/:memberId", async (req, res) => {
 
     const { error } = await supabase
       .from("team_members")
-      .update({ role })
+      .update({ role, custom_role_id: custom_role_id || null })
       .eq("team_id", teamId)
       .eq("user_id", memberId);
 
@@ -786,3 +788,144 @@ teamRouter.delete("/unassigned-users/:userId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/teams/:id/roles – List all custom roles for a team
+// ---------------------------------------------------------------------------
+teamRouter.get("/:id/roles", async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.from("custom_roles").select("*").eq("team_id", teamId);
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/teams/:id/roles – Create custom role
+// ---------------------------------------------------------------------------
+teamRouter.post("/:id/roles", async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const { name, permissions, description } = req.body;
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.from("custom_roles").insert({ team_id: teamId, name, permissions, description }).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/teams/:id/roles/:roleId – Update custom role
+// ---------------------------------------------------------------------------
+teamRouter.patch("/:id/roles/:roleId", async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const roleId = req.params.roleId;
+    const { name, permissions, description } = req.body;
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.from("custom_roles").update({ name, permissions, description }).eq("id", roleId).eq("team_id", teamId).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/teams/:id/roles/:roleId – Delete custom role
+// ---------------------------------------------------------------------------
+teamRouter.delete("/:id/roles/:roleId", async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const roleId = req.params.roleId;
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.from("custom_roles").delete().eq("id", roleId).eq("team_id", teamId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/teams/:id/members/:memberId/inboxes – Get all inboxes for a team and the member's roles
+// ---------------------------------------------------------------------------
+teamRouter.get("/:id/members/:memberId/inboxes", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const teamId = req.params.id;
+    const memberId = req.params.memberId;
+    const supabase = getSupabaseAdmin();
+
+    // Verify access
+    const { data: myMembership } = await supabase.from("team_members").select("role").eq("team_id", teamId).eq("user_id", userId).maybeSingle();
+    if (!myMembership || !["owner", "admin"].includes(myMembership.role)) {
+      if (!await import("../middleware/permissions.middleware.js").then(m => m.isSuperAdmin(userId))) {
+        res.status(403).json({ error: "Keine Berechtigung" });
+        return;
+      }
+    }
+
+    // Fetch all inboxes for team
+    const { data: inboxes } = await supabase.from("inboxes").select("*").eq("team_id", teamId).eq("type", "shared");
+    
+    // Fetch user's inbox memberships
+    const { data: memberships } = await supabase.from("inbox_members").select("*").eq("user_id", memberId).in("inbox_id", (inboxes || []).map((i: any) => i.id));
+
+    const result = (inboxes || []).map((inbox: any) => {
+      const membership = (memberships || []).find((m: any) => m.inbox_id === inbox.id);
+      return {
+        ...inbox,
+        userRole: membership?.role || null,
+        hasAccess: !!membership
+      };
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/teams/:id/members/:memberId/inboxes – Update member's inbox access
+// ---------------------------------------------------------------------------
+teamRouter.patch("/:id/members/:memberId/inboxes", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const teamId = req.params.id;
+    const memberId = req.params.memberId;
+    const { inboxId, role, hasAccess } = req.body;
+    const supabase = getSupabaseAdmin();
+
+    // Verify access
+    const { data: myMembership } = await supabase.from("team_members").select("role").eq("team_id", teamId).eq("user_id", userId).maybeSingle();
+    if (!myMembership || !["owner", "admin"].includes(myMembership.role)) {
+      if (!await import("../middleware/permissions.middleware.js").then(m => m.isSuperAdmin(userId))) {
+        res.status(403).json({ error: "Keine Berechtigung" });
+        return;
+      }
+    }
+
+    if (hasAccess) {
+      // Upsert
+      const { error } = await supabase.from("inbox_members").upsert({ inbox_id: inboxId, user_id: memberId, role: role || 'member' }, { onConflict: 'inbox_id,user_id' });
+      if (error) throw error;
+    } else {
+      // Delete
+      const { error } = await supabase.from("inbox_members").delete().eq("inbox_id", inboxId).eq("user_id", memberId);
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+

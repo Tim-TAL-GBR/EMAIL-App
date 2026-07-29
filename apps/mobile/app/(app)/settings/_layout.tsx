@@ -18,6 +18,7 @@ export const SETTINGS_PAGES = [
   { section: 'ARBEIT', items: [
     { label: 'Organisationen', href: '/settings/organizations' },
     { label: 'Benutzer', href: '/settings/users' },
+    { label: 'Rollen', href: '/settings/roles' },
     { label: 'Gäste', href: '/settings/guests' },
     { label: 'Teams', href: '/settings/teams' },
     { label: 'Labels', href: '/settings/labels' },
@@ -26,6 +27,9 @@ export const SETTINGS_PAGES = [
     { label: 'Regeln', href: '/settings/rules' },
     { label: 'Signaturen', href: '/settings/signatures' },
     { label: 'Abrechnung', href: '/settings/billing' },
+  ]},
+  { section: 'SUPER ADMIN', items: [
+    { label: 'Dashboard', href: '/settings/admin' },
   ]},
   { section: '', items: [
     { label: 'Rewards 💰', href: '/settings/rewards' },
