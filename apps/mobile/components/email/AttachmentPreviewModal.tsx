@@ -52,18 +52,22 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
   };
 
   const handleDownload = async () => {
-    if (!signedUrl || !attachment) return;
-    if (Platform.OS === 'web') {
-      const res = await fetch(signedUrl);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = attachment.file_name;
-      a.click();
-      URL.revokeObjectURL(blobUrl);
-    } else {
-      Linking.openURL(signedUrl);
+    if (!attachment) return;
+    try {
+      const { data, error } = await supabase
+        .storage
+        .from('email_attachments')
+        .createSignedUrl(attachment.storage_path, 120, { download: attachment.file_name });
+      if (error) throw error;
+      if (Platform.OS === 'web') {
+        const a = document.createElement('a');
+        a.href = data.signedUrl;
+        a.click();
+      } else {
+        Linking.openURL(data.signedUrl);
+      }
+    } catch (e) {
+      console.error('Download failed:', e);
     }
   };
 
