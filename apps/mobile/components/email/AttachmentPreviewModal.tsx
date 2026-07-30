@@ -51,13 +51,17 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!signedUrl || !attachment) return;
     if (Platform.OS === 'web') {
+      const res = await fetch(signedUrl);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = signedUrl;
+      a.href = blobUrl;
       a.download = attachment.file_name;
       a.click();
+      URL.revokeObjectURL(blobUrl);
     } else {
       Linking.openURL(signedUrl);
     }
