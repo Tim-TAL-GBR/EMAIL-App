@@ -117,15 +117,12 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     const newSubject = mode === 'reply'
       ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`)
       : mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : '';
-    const origBody = sourceEmail?.body_text || '';
-    const quoted = origBody.split('\n').map(l => `> ${l}`).join('\n');
-    const newBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quoted}` : '';
     setTo(newTo);
     setCc('');
     setBcc('');
     setShowBcc(false);
     setSubject(newSubject);
-    setBody(newBody);
+    setBody('');
     setAttachments([]);
     setUploadProgress({});
     setSenderAddress('');
@@ -288,7 +285,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     })();
   }, [inboxes, visible, userSigSettings, mode, sourceEmail]);
 
-  // Signature on open
+  // Build footer: signature + quoted original (reply/forward)
   useEffect(() => {
     if (visible && !draftToResume && !draft && activeInboxId) {
       let sigText: string | null = null;
@@ -305,12 +302,22 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           if (sig?.content_text) sigText = sig.content_text;
         }
       }
+
+      let footer = '';
       if (sigText) {
-        const formatted = `\n\n-- \n${sigText}`;
-        setBody(prev => prev.includes(formatted) ? prev : prev + formatted);
+        footer += `\n\n-- \n${sigText}`;
+      }
+      if (mode === 'reply' || mode === 'forward') {
+        const origBody = sourceEmail?.body_text || '';
+        if (origBody) {
+          footer += `\n\n${origBody.split('\n').map(l => `> ${l}`).join('\n')}`;
+        }
+      }
+      if (footer) {
+        setBody(prev => prev.includes(footer) ? prev : prev + footer);
       }
     }
-  }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings, sourceEmail?.id]);
+  }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings, sourceEmail?.id, sourceEmail?.body_text]);
 
   // Fetch templates
   useEffect(() => {
