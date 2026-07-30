@@ -186,6 +186,7 @@ mailRouter.post("/send", async (req, res) => {
       inReplyTo,
       references,
       fromAddress,
+      attachments,
     });
 
     res.json({ success: true, message: "Email sent successfully" });
