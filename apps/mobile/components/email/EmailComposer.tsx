@@ -97,6 +97,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const [isUploading, setIsUploading] = useState(false);
 
   const [templates, setTemplates] = useState<{ id: string; name: string; subject?: string; body: string }[]>([]);
+  const footerApplied = useRef(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null);
 
@@ -177,6 +178,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   // Pre-fill subject/to when opening or switching emails
   useEffect(() => {
     if (!draftToResume && !draft) {
+      footerApplied.current = false;
       setTo(mode === 'reply'
         ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length
             ? sourceEmail.to_addresses[0]
@@ -189,6 +191,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         mode === 'reply' ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`) :
         mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : ''
       );
+      setBody(initialBody);
       setAttachments([]);
       setUploadProgress({});
     }
@@ -284,9 +287,9 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     })();
   }, [inboxes, visible, userSigSettings, mode, sourceEmail]);
 
-  // Build footer: signature + quoted original (reply/forward)
+  // Append signature when userSigSettings loads (insert before quoted text if present)
   useEffect(() => {
-    if (visible && !draftToResume && !draft && activeInboxId) {
+    if (visible && !draftToResume && !draft && activeInboxId && !footerApplied.current) {
       let sigText: string | null = null;
       if (userSigSettings?.signature?.content_text) {
         sigText = userSigSettings.signature.content_text;
@@ -302,21 +305,22 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         }
       }
 
-      let footer = '';
       if (sigText) {
-        footer += `\n\n-- \n${sigText}`;
-      }
-      if (mode === 'reply' || mode === 'forward') {
-        const origBody = sourceEmail?.body_text || '';
-        if (origBody) {
-          footer += `\n\n${origBody.split('\n').map(l => `> ${l}`).join('\n')}`;
-        }
-      }
-      if (footer) {
-        setBody(prev => prev.includes(footer) ? prev : prev + footer);
+        const sigBlock = `\n\n-- \n${sigText}`;
+        footerApplied.current = true;
+        setBody(prev => {
+          const quotedMarker = `\n\n> `;
+          const quotedIdx = prev.indexOf(quotedMarker);
+          if (quotedIdx >= 0) {
+            return prev.substring(0, quotedIdx) + sigBlock + prev.substring(quotedIdx);
+          }
+          return prev + sigBlock;
+        });
+      } else if (userSigSettings) {
+        footerApplied.current = true;
       }
     }
-  }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings, sourceEmail?.id, sourceEmail?.body_text]);
+  }, [visible, mode, activeInboxId, inboxes, signatures, draftToResume, draft, userSigSettings, sourceEmail?.id]);
 
   // Fetch templates
   useEffect(() => {

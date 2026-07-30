@@ -708,18 +708,31 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   },
 
   togglePinThread: async (threadId, subject) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const current = get().pinnedThreads;
     const isPinned = current.some(p => p.thread_id === threadId);
 
     if (isPinned) {
       set({ pinnedThreads: current.filter(p => p.thread_id !== threadId) });
-      await supabase.from('user_pinned_threads').delete().eq('thread_id', threadId);
+      const { error } = await supabase
+        .from('user_pinned_threads')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('thread_id', threadId);
+      if (error) {
+        set({ pinnedThreads: current });
+      }
     } else {
       const newPin = { thread_id: threadId, subject, created_at: new Date().toISOString() };
       set({ pinnedThreads: [newPin, ...current] });
-      await supabase.from('user_pinned_threads').insert([
-        { thread_id: threadId, subject }
-      ]);
+      const { error } = await supabase
+        .from('user_pinned_threads')
+        .insert([{ user_id: user.id, thread_id: threadId, subject }]);
+      if (error) {
+        set({ pinnedThreads: current });
+      }
     }
   }
 }));

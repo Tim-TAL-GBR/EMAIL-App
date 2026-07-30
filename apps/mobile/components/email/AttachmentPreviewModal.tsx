@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Image, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, Image, ActivityIndicator, Platform, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, FontFamily, FontSize } from '../../lib/constants';
 import { supabase } from '../../lib/supabase';
 import * as Linking from 'expo-linking';
+import { File, Paths } from 'expo-file-system';
 
 interface Attachment {
   id: string;
@@ -57,17 +58,22 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
       const { data, error } = await supabase
         .storage
         .from('email_attachments')
-        .createSignedUrl(attachment.storage_path, 120, { download: attachment.file_name });
+        .createSignedUrl(attachment.storage_path, 120);
       if (error) throw error;
+
       if (Platform.OS === 'web') {
         const a = document.createElement('a');
         a.href = data.signedUrl;
+        a.download = attachment.file_name;
         a.click();
       } else {
-        Linking.openURL(data.signedUrl);
+        const dest = new File(Paths.document, attachment.file_name);
+        const file = await File.downloadFileAsync(data.signedUrl, dest, { idempotent: true });
+        Linking.openURL(file.uri);
       }
     } catch (e) {
       console.error('Download failed:', e);
+      Alert.alert('Download fehlgeschlagen', 'Die Datei konnte nicht heruntergeladen werden.');
     }
   };
 
