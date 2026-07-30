@@ -52,7 +52,13 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
   };
 
   const handleDownload = () => {
-    if (signedUrl) {
+    if (!signedUrl || !attachment) return;
+    if (Platform.OS === 'web') {
+      const a = document.createElement('a');
+      a.href = signedUrl;
+      a.download = attachment.file_name;
+      a.click();
+    } else {
       Linking.openURL(signedUrl);
     }
   };
@@ -74,9 +80,7 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
             <Text style={styles.title} numberOfLines={1}>{attachment.file_name}</Text>
             <Text style={styles.subtitle}>{(attachment.size_bytes / 1024 / 1024).toFixed(2)} MB</Text>
           </View>
-          <TouchableOpacity onPress={handleDownload} style={styles.iconButton}>
-            <Feather name="download" size={24} color="#FFF" />
-          </TouchableOpacity>
+
         </View>
 
         <View style={styles.content}>
