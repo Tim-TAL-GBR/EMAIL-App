@@ -189,7 +189,6 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         mode === 'reply' ? (sourceEmail?.subject?.startsWith('Re:') ? sourceEmail.subject : `Re: ${sourceEmail?.subject}`) :
         mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : ''
       );
-      setBody(initialBody);
       setAttachments([]);
       setUploadProgress({});
     }
