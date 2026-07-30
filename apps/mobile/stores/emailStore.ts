@@ -619,7 +619,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const wasViewingDeleted = deletedThread && previousSelectedId === deletedThread.id;
     if (wasViewingDeleted) {
       const deletedIndex = originalThreads.indexOf(deletedThread);
-      const nextThread = newThreads[deletedIndex] || newThreads[deletedIndex - 1] || newThreads[0] || null;
+      const nextInOriginal = originalThreads[deletedIndex + 1];
+      const prevInOriginal = originalThreads[deletedIndex - 1];
+      const nextThread = newThreads.find(t => t.id === nextInOriginal?.id)
+        ?? newThreads.find(t => t.id === prevInOriginal?.id)
+        ?? newThreads[Math.min(deletedIndex, newThreads.length - 1)]
+        ?? newThreads[newThreads.length - 1]
+        ?? newThreads[0]
+        ?? null;
       useNavigationStore.getState().setEmailId(nextThread?.id ?? null);
     } else if (!previousSelectedId && newThreads.length > 0) {
       useNavigationStore.getState().setEmailId(newThreads[0].id);
@@ -655,7 +662,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const wasViewingDeleted = deletedThread && previousSelectedId === deletedThread.id;
     if (wasViewingDeleted) {
       const deletedIndex = originalThreads.indexOf(deletedThread);
-      const nextThread = newThreads[deletedIndex] || newThreads[deletedIndex - 1] || newThreads[0] || null;
+      const nextInOriginal = originalThreads[deletedIndex + 1];
+      const prevInOriginal = originalThreads[deletedIndex - 1];
+      const nextThread = newThreads.find(t => t.id === nextInOriginal?.id)
+        ?? newThreads.find(t => t.id === prevInOriginal?.id)
+        ?? newThreads[Math.min(deletedIndex, newThreads.length - 1)]
+        ?? newThreads[newThreads.length - 1]
+        ?? newThreads[0]
+        ?? null;
       useNavigationStore.getState().setEmailId(nextThread?.id ?? null);
     } else if (!previousSelectedId && newThreads.length > 0) {
       useNavigationStore.getState().setEmailId(newThreads[0].id);
