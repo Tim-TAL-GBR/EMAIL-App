@@ -897,7 +897,22 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
                   style={styles.pickerOption}
                   onPress={() => {
                     if (tpl.subject) setSubject(replaceVariables(tpl.subject));
-                    setBody(replaceVariables(tpl.body));
+                    let sigText: string | null = null;
+                    if (userSigSettings?.signature?.content_text) {
+                      sigText = userSigSettings.signature.content_text;
+                    } else if (userSigSettings?.signature_id) {
+                      const userSig = signatures.find(s => s.id === userSigSettings.signature_id);
+                      if (userSig?.content_text) sigText = userSig.content_text;
+                    }
+                    if (!sigText) {
+                      const activeInbox = inboxes.find(i => i.id === activeInboxId);
+                      if (activeInbox?.signature_id) {
+                        const sig = signatures.find(s => s.id === activeInbox.signature_id);
+                        if (sig?.content_text) sigText = sig.content_text;
+                      }
+                    }
+                    const tplBody = replaceVariables(tpl.body);
+                    setBody(sigText ? `${tplBody}\n\n-- \n${sigText}` : tplBody);
                     setShowTemplatePicker(false);
                   }}
                 >
