@@ -154,6 +154,7 @@ export class SmtpClient {
       is_read: true,
       is_starred: false,
       is_deleted: false,
+      mailbox_name: "Sent",
     }).select("id").single();
 
     if (insertError) {
