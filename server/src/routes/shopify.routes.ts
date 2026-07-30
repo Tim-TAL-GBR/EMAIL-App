@@ -1,6 +1,5 @@
 import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
-import crypto from "crypto";
 import { getSupabaseAdmin } from "../services/auth.service.js";
 import { getShopifyForTeam, invalidateShopifyForTeam } from "../services/shopify.service.js";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
@@ -14,6 +13,48 @@ export const shopifyRouter: Router = Router();
 function decryptConn<T extends { access_token?: string }>(conn: T | null): T | null {
   if (conn?.access_token) conn.access_token = decrypt(conn.access_token);
   return conn;
+}
+
+async function verifyShopifySessionToken(token: string, shopDomain: string): Promise<any> {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Invalid token format");
+
+  const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+
+  if (payload.exp && payload.exp * 1000 < Date.now()) {
+    throw new Error("Token expired");
+  }
+
+  const supabase = getSupabaseAdmin();
+  let { data: conn } = await supabase
+    .from("shopify_connections")
+    .select("team_id")
+    .eq("shop_domain", shopDomain)
+    .maybeSingle();
+
+  if (!conn) {
+    conn = (await supabase
+      .from("shopify_connections")
+      .select("team_id")
+      .eq("primary_domain", shopDomain)
+      .maybeSingle()).data;
+  }
+
+  if (!conn) throw new Error("Shop not connected");
+
+  const shopify = await getShopifyForTeam(conn.team_id);
+  if (!shopify) throw new Error("Shopify app not configured");
+
+  // Verify JWT signature and audience using Shopify's JWKS
+  const decoded = await shopify.session.decodeSessionToken(token);
+
+  // Verify issuer matches the shop domain
+  const issShop = decoded.iss?.replace("https://", "").replace("/admin", "");
+  if (!issShop || (shopDomain && issShop !== shopDomain && decoded.dest !== `https://${shopDomain}`)) {
+    throw new Error("Token shop mismatch");
+  }
+
+  return { payload: decoded, teamId: conn.team_id };
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +226,7 @@ shopifyRouter.get("/auth/callback", async (req, res) => {
     if (session.accessToken) {
       let primaryDomain: string | null = null;
       try {
-        const gqlRes = await fetch(`https://${session.shop}/admin/api/2025-04/graphql.json`, {
+        const gqlRes = await fetch(`https://${session.shop}/admin/api/2025-10/graphql.json`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -228,6 +269,7 @@ shopifyRouter.get("/auth/callback", async (req, res) => {
 
 shopifyRouter.delete("/disconnect", requireAuth, async (req, res) => {
   const { teamId, shopDomain } = req.body;
+  console.log("[Disconnect] req.body:", JSON.stringify(req.body), "req.headers.content-type:", req.headers["content-type"]);
   if (!teamId || !shopDomain) {
     return res.status(400).json({ error: "Missing teamId or shopDomain" });
   }
@@ -330,7 +372,7 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
       }
     `;
 
-    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-04/graphql.json`, {
+    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-10/graphql.json`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -345,7 +387,7 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
     // Fetch orders separately since Customer.orders often returns empty edges
     let orders = customerData?.numberOfOrders !== "0" ? [] : [];
     if (customerData && customerData.numberOfOrders !== "0") {
-      const ordersRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-04/graphql.json`, {
+      const ordersRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-10/graphql.json`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -483,7 +525,7 @@ shopifyRouter.get("/order/detail", requireAuth, async (req, res) => {
       }
     `;
 
-    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-04/graphql.json`, {
+    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-10/graphql.json`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -559,7 +601,7 @@ shopifyRouter.post("/order/cancel", requireAuth, async (req, res) => {
       }
     `;
 
-    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-04/graphql.json`, {
+    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-10/graphql.json`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -640,7 +682,7 @@ shopifyRouter.post("/order/update", requireAuth, async (req, res) => {
       }
     `;
 
-    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-04/graphql.json`, {
+    const apiRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-10/graphql.json`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -673,40 +715,22 @@ shopifyRouter.get("/order-communication", async (req, res) => {
   const orderId = req.query.orderId as string;
   const orderName = req.query.orderName as string;
 
-  // Validate shop domain format to prevent enumeration
   if (!shopDomain || !/^[a-z0-9.-]+$/.test(shopDomain)) {
     return res.status(400).json({ error: "Invalid shop domain" });
   }
 
   const authHeader = req.headers["authorization"] as string;
-  console.log("TEAMMAIL SERVER DEBUG (order-communication): authHeader =", authHeader, "all headers =", req.headers);
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Missing authorization token" });
   }
 
-  const sessionToken = authHeader.replace("Bearer ", "");
-  let tokenPayload: any;
+  const sessionToken = authHeader.slice(7);
+  let teamId: string;
   try {
-    // Decode and verify the Shopify session token
-    // The token is a JWT signed by Shopify, we verify the iss (issuer) matches the shop
-    const parts = sessionToken.split(".");
-    if (parts.length !== 3) throw new Error("Invalid token format");
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-    
-    // Verify the token hasn't expired
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      return res.status(401).json({ error: "Token expired" });
-    }
-    
-    // Verify issuer matches the shop domain
-    const issShop = payload.iss?.replace("https://", "").replace("/admin", "");
-    if (!issShop || (shopDomain && issShop !== shopDomain)) {
-      return res.status(401).json({ error: "Token shop mismatch" });
-    }
-    
-    tokenPayload = payload;
-  } catch (err) {
-    return res.status(401).json({ error: "Invalid session token" });
+    const result = await verifyShopifySessionToken(sessionToken, shopDomain);
+    teamId = result.teamId;
+  } catch (err: any) {
+    return res.status(401).json({ error: err.message || "Invalid session token" });
   }
 
   console.log("[OrderComm] Request:", { shopDomain, customerEmail, orderId, orderName });
@@ -717,48 +741,38 @@ shopifyRouter.get("/order-communication", async (req, res) => {
 
   try {
     const supabase = getSupabaseAdmin();
-    let { data: rawConnection } = await supabase
-      .from("shopify_connections")
-      .select("team_id, access_token, shop_domain")
-      .eq("shop_domain", shopDomain)
-      .single();
-    let connection = decryptConn(rawConnection);
-
-    if (!connection) {
-      const { data: byPrimary } = await supabase
-        .from("shopify_connections")
-        .select("team_id, access_token, shop_domain")
-        .eq("primary_domain", shopDomain)
-        .single();
-      connection = decryptConn(byPrimary);
-    }
-
-    if (!connection) {
-      return res.status(404).json({ error: "Shop not connected" });
-    }
 
     let resolvedEmail = customerEmail;
 
     // If only orderId provided, resolve customer email via Shopify API (with timeout)
     if (!resolvedEmail && orderId) {
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const gqlRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-04/graphql.json`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": connection.access_token,
-          },
-          body: JSON.stringify({
-            query: `query ($id: ID!) { order(id: $id) { email customer { email } } }`,
-            variables: { id: orderId },
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        const gqlJson = await gqlRes.json();
-        resolvedEmail = gqlJson.data?.order?.customer?.email || gqlJson.data?.order?.email;
+        const { data: rawConnection } = await supabase
+          .from("shopify_connections")
+          .select("access_token, shop_domain")
+          .eq("shop_domain", shopDomain)
+          .single();
+        const connection = decryptConn(rawConnection);
+        if (connection?.access_token) {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+          const gqlRes = await fetch(`https://${connection.shop_domain}/admin/api/2025-10/graphql.json`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": connection.access_token,
+            },
+            body: JSON.stringify({
+              query: `query ($id: ID!) { order(id: $id) { email customer { email } } }`,
+              variables: { id: orderId },
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          const gqlJson = await gqlRes.json();
+          resolvedEmail = gqlJson.data?.order?.customer?.email || gqlJson.data?.order?.email;
+          console.log("[OrderComm] GQL result:", { resolvedEmail, gqlErrors: gqlJson.errors });
+        }
       } catch (e) {
         console.log("[OrderComm] Shopify GQL skipped, using fallback:", (e as Error).message);
       }
@@ -771,11 +785,12 @@ shopifyRouter.get("/order-communication", async (req, res) => {
       const { data, error } = await supabase
         .from("emails")
         .select("id, subject, from_address, to_addresses, body_text, direction, received_at, status")
-        .eq("team_id", connection.team_id)
+        .eq("team_id", teamId)
         .or(`from_address.ilike.%${emailLower}%,to_addresses.cs.{${resolvedEmail}}`)
         .order("received_at", { ascending: false })
         .limit(20);
       if (!error) emails = data || [];
+      console.log("[OrderComm] Email search:", { resolvedEmail, count: emails.length, error });
     }
 
     // Fallback: if no emails found or no email resolved, search by order name in subject
@@ -783,13 +798,15 @@ shopifyRouter.get("/order-communication", async (req, res) => {
       const { data, error } = await supabase
         .from("emails")
         .select("id, subject, from_address, to_addresses, body_text, direction, received_at, status")
-        .eq("team_id", connection.team_id)
+        .eq("team_id", teamId)
         .ilike("subject", `%${orderName}%`)
         .order("received_at", { ascending: false })
         .limit(20);
       if (!error) emails = data || [];
     }
 
+    console.log("[OrderComm] Response:", { emailCount: emails.length, resolvedEmail });
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.json({ emails, customerEmail: resolvedEmail || null });
   } catch (error) {
     console.error("Shopify Order Communication Error:", error);
@@ -806,41 +823,26 @@ shopifyRouter.get("/order-communication/templates", async (req, res) => {
   if (!shopDomain) return res.status(400).json({ error: "Missing shop parameter" });
 
   const authHeader = req.headers["authorization"] as string;
-  console.log("TEAMMAIL SERVER DEBUG (templates): authHeader =", authHeader);
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Missing authorization token" });
   }
 
-  const sessionToken = authHeader.replace("Bearer ", "");
+  const sessionToken = authHeader.slice(7);
+  let teamId: string;
   try {
-    const parts = sessionToken.split(".");
-    if (parts.length !== 3) throw new Error("Invalid token format");
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      return res.status(401).json({ error: "Token expired" });
-    }
-    const issShop = payload.iss?.replace("https://", "").replace("/admin", "");
-    if (!issShop || issShop !== shopDomain) {
-      return res.status(401).json({ error: "Token shop mismatch" });
-    }
-  } catch (err) {
-    return res.status(401).json({ error: "Invalid session token" });
+    const result = await verifyShopifySessionToken(sessionToken, shopDomain);
+    teamId = result.teamId;
+  } catch (err: any) {
+    return res.status(401).json({ error: err.message || "Invalid session token" });
   }
 
   try {
     const supabase = getSupabaseAdmin();
-    const { data: rawConnection } = await supabase
-      .from("shopify_connections")
-      .select("team_id")
-      .eq("shop_domain", shopDomain)
-      .single();
-
-    if (!rawConnection) return res.status(404).json({ error: "Shop not connected" });
 
     const { data: templates, error } = await supabase
       .from("templates")
       .select("*")
-      .eq("team_id", rawConnection.team_id)
+      .eq("team_id", teamId)
       .eq("scope", "team")
       .eq("show_in_shopify", true)
       .order("name");
@@ -869,37 +871,23 @@ shopifyRouter.post("/order-communication/send", async (req, res) => {
     return res.status(401).json({ error: "Missing authorization token" });
   }
 
-  const sessionToken = authHeader.replace("Bearer ", "");
+  const sessionToken = authHeader.slice(7);
+  let teamId: string;
   try {
-    const parts = sessionToken.split(".");
-    if (parts.length !== 3) throw new Error("Invalid token format");
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      return res.status(401).json({ error: "Token expired" });
-    }
-    const issShop = payload.iss?.replace("https://", "").replace("/admin", "");
-    if (!issShop || issShop !== shopDomain) {
-      return res.status(401).json({ error: "Token shop mismatch" });
-    }
-  } catch (err) {
-    return res.status(401).json({ error: "Invalid session token" });
+    const result = await verifyShopifySessionToken(sessionToken, shopDomain);
+    teamId = result.teamId;
+  } catch (err: any) {
+    return res.status(401).json({ error: err.message || "Invalid session token" });
   }
 
   try {
     const supabase = getSupabaseAdmin();
-    const { data: rawConnection } = await supabase
-      .from("shopify_connections")
-      .select("team_id")
-      .eq("shop_domain", shopDomain)
-      .single();
-
-    if (!rawConnection) return res.status(404).json({ error: "Shop not connected" });
 
     // Find the default shared inbox for this team
     const { data: inboxes } = await supabase
       .from("inboxes")
       .select("id")
-      .eq("team_id", rawConnection.team_id)
+      .eq("team_id", teamId)
       .eq("type", "shared")
       .limit(1);
 
@@ -920,7 +908,7 @@ shopifyRouter.post("/order-communication/send", async (req, res) => {
 
     await smtpClient.sendEmail({
       inboxId,
-      teamId: rawConnection.team_id,
+      teamId,
       to,
       subject,
       bodyText,
@@ -936,79 +924,4 @@ shopifyRouter.post("/order-communication/send", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Auto-Sync: Push email note to matching Shopify orders
-// ---------------------------------------------------------------------------
 
-export async function syncEmailToShopifyOrders(opts: {
-  teamId: string;
-  customerEmail: string;
-  subject: string;
-  direction: "inbound" | "outbound";
-  fromAddress: string;
-  snippet: string;
-}) {
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data: rawConnection } = await supabase
-      .from("shopify_connections")
-      .select("*")
-      .eq("team_id", opts.teamId)
-      .limit(1)
-      .maybeSingle();
-    const connection = decryptConn(rawConnection);
-
-    if (!connection) return;
-
-    const dirLabel = opts.direction === "inbound" ? "Eingehend" : "Ausgehend";
-    const noteLine = `[TeamMail ${dirLabel}] ${opts.fromAddress} → ${opts.customerEmail}\nBetreff: ${opts.subject}\n${opts.snippet.substring(0, 200)}`;
-
-    const token = connection.access_token;
-    const shop = connection.shop_domain;
-
-    const ordersRes = await fetch(`https://${shop}/admin/api/2025-04/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": token,
-      },
-      body: JSON.stringify({
-        query: `query ($query: String!) {
-          orders(first: 10, query: $query) {
-            edges {
-              node {
-                id
-                note
-              }
-            }
-          }
-        }`,
-        variables: { query: `email:${opts.customerEmail}` },
-      }),
-    });
-
-    const ordersJson = await ordersRes.json();
-    const edges = ordersJson?.data?.orders?.edges || [];
-
-    for (const { node: order } of edges) {
-      const existingNote = order.note || "";
-      const newNote = existingNote ? `${existingNote}\n\n${noteLine}` : noteLine;
-
-      await fetch(`https://${shop}/admin/api/2025-04/graphql.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": token,
-        },
-        body: JSON.stringify({
-          query: `mutation orderUpdate($input: OrderInput!) {
-            orderUpdate(input: $input) { order { id note } userErrors { field message } }
-          }`,
-          variables: { input: { id: order.id, note: newNote } },
-        }),
-      });
-    }
-  } catch (err) {
-    console.error("[Shopify Auto-Sync] Error:", err);
-  }
-}

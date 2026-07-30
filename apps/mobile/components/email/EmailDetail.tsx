@@ -68,7 +68,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
   const loadAssignments = async () => {
     const { data } = await supabase
       .from('email_assignments')
-      .select('*, assigned_to_profile:profiles!assigned_to(id, display_name, email, avatar_url)')
+      .select('*')
       .eq('email_id', email.id);
     setAssignments((data as any) ?? []);
   };

@@ -11,7 +11,7 @@ export default function LabelsSettingsScreen() {
     return teams.values().next().value || 'Organisation';
   }, [inboxes]);
 
-  const [selectedItem, setSelectedItem] = useState<'org' | 'email'>('org');
+  const [selectedItem, setSelectedItem] = useState<string>('org');
 
   const renderOrgContent = () => (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
@@ -97,13 +97,15 @@ export default function LabelsSettingsScreen() {
     </ScrollView>
   );
 
-  const renderEmailContent = () => (
+  const renderEmailContent = () => {
+    const activeInbox = inboxes.find(i => `email_${i.id}` === selectedItem) || inboxes[0];
+    return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
       <View style={styles.infoBox}>
         <Text style={styles.infoIconBox}>❔</Text>
         <View style={{ flex: 1 }}>
           <Text style={styles.infoText}>
-            Diese E-Mail-Labels werden mit dem <Text style={{fontWeight: 'bold'}}>studioleitung@celle.clever-fit.com</Text> E-Mail-Konto synchronisiert. Sie werden mit allen geteilt, die Zugriff auf dieses Konto haben.
+            Diese E-Mail-Labels werden mit dem <Text style={{fontWeight: 'bold'}}>{activeInbox?.email_address}</Text> E-Mail-Konto synchronisiert. Sie werden mit allen geteilt, die Zugriff auf dieses Konto haben.
           </Text>
           <TouchableOpacity style={{ marginTop: Spacing.sm }}>
             <Text style={styles.linkTextBlue}>Mehr erfahren</Text>
@@ -141,7 +143,8 @@ export default function LabelsSettingsScreen() {
         ))}
       </View>
     </ScrollView>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -158,37 +161,26 @@ export default function LabelsSettingsScreen() {
           </View>
           
           <Text style={styles.sidebarSectionTitle}>E-Mail-Konten</Text>
-          <TouchableOpacity 
-            style={[styles.sidebarItem, selectedItem === 'email' && styles.sidebarItemActive]}
-            onPress={() => setSelectedItem('email')}
-          >
-            <View style={styles.emailAvatar}>
-              <Text style={styles.emailAvatarText}>fit</Text>
-            </View>
-            <View>
-              <Text style={[styles.sidebarItemTitle, selectedItem === 'email' && styles.sidebarItemTitleActive]}>studioleitung@celle.clever-...</Text>
-              <Text style={[styles.sidebarItemSubtitle, selectedItem === 'email' && styles.sidebarItemSubtitleActive]}>10 labels</Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.sidebarItem}>
-            <View style={styles.emailAvatar}>
-              <Text style={styles.emailAvatarText}>fit</Text>
-            </View>
-            <View>
-              <Text style={styles.sidebarItemTitle}>studio@celle.clever-fit.com</Text>
-              <Text style={styles.sidebarItemSubtitle}>96 labels</Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.sidebarItem}>
-            <View style={[styles.emailAvatar, { backgroundColor: 'transparent' }]}>
-            </View>
-            <View>
-              <Text style={styles.sidebarItemTitle}>t.regener@cf-celle.de</Text>
-              <Text style={styles.sidebarItemSubtitle}>0 labels</Text>
-            </View>
-          </TouchableOpacity>
+          {inboxes.map((inbox) => {
+            const isSelected = selectedItem === `email_${inbox.id}`;
+            const abbr = inbox.name ? inbox.name.substring(0, 2).toUpperCase() : inbox.email_address.substring(0, 2).toUpperCase();
+            
+            return (
+              <TouchableOpacity 
+                key={inbox.id}
+                style={[styles.sidebarItem, isSelected && styles.sidebarItemActive]}
+                onPress={() => setSelectedItem(`email_${inbox.id}`)}
+              >
+                <View style={styles.emailAvatar}>
+                  <Text style={styles.emailAvatarText}>{abbr}</Text>
+                </View>
+                <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+                  <Text style={[styles.sidebarItemTitle, isSelected && styles.sidebarItemTitleActive]} numberOfLines={1}>{inbox.email_address}</Text>
+                  <Text style={[styles.sidebarItemSubtitle, isSelected && styles.sidebarItemSubtitleActive]}>Labels verwalten</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
 
           <Text style={[styles.sidebarSectionTitle, { marginTop: Spacing.md }]}>Organisationen</Text>
           <TouchableOpacity 
@@ -225,15 +217,21 @@ export default function LabelsSettingsScreen() {
                 </View>
               </>
             ) : (
-              <>
-                <View style={[styles.headerAvatar, { backgroundColor: '#FFF', borderWidth: 1, borderColor: Colors.border }]}>
-                  <Text style={[styles.headerAvatarText, { color: '#E3000F' }]}>fit</Text>
-                </View>
-                <View>
-                  <Text style={styles.mainHeaderTitle}>studioleitung@celle.clever-fit.com</Text>
-                  <Text style={styles.mainHeaderSubtitle}>Office 365 Konto</Text>
-                </View>
-              </>
+              (() => {
+                const activeInbox = inboxes.find(i => `email_${i.id}` === selectedItem) || inboxes[0];
+                const abbr = activeInbox?.name ? activeInbox.name.substring(0, 2).toUpperCase() : (activeInbox?.email_address.substring(0, 2).toUpperCase() || 'EM');
+                return (
+                <>
+                  <View style={[styles.headerAvatar, { backgroundColor: '#FFF', borderWidth: 1, borderColor: Colors.border }]}>
+                    <Text style={[styles.headerAvatarText, { color: Colors.primary }]}>{abbr}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.mainHeaderTitle}>{activeInbox?.email_address || 'E-Mail Konto'}</Text>
+                    <Text style={styles.mainHeaderSubtitle}>Konto Labels</Text>
+                  </View>
+                </>
+                );
+              })()
             )}
           </View>
         </View>
@@ -310,7 +308,7 @@ const styles = StyleSheet.create({
     marginRight: Spacing.sm,
   },
   emailAvatarText: {
-    color: '#E3000F',
+    color: Colors.primary,
     fontFamily: FontFamily,
     fontSize: 10,
     fontWeight: 'bold',

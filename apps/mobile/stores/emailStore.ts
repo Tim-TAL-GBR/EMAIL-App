@@ -1,4 +1,3 @@
-import { API_URL } from "@/lib/constants";
 /**
  * Email Store
  *
@@ -9,6 +8,21 @@ import { API_URL } from "@/lib/constants";
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { ContextType, useNavigationStore } from './navigationStore';
+import { API_URL } from "@/lib/constants";
+
+/** Returns a valid Bearer token, refreshing the session if needed. Throws if not authenticated. */
+async function getValidToken(): Promise<string> {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error || !session?.access_token) {
+    // Force a session refresh in case the token is stale
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError || !refreshed.session?.access_token) {
+      throw new Error('Session abgelaufen – bitte neu einloggen.');
+    }
+    return refreshed.session.access_token;
+  }
+  return session.access_token;
+}
 
 /** Email status enum matching the database */
 export type EmailStatus = 'open' | 'in_progress' | 'done';
@@ -612,16 +626,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
 
     try {
-      
+      const token = await getValidToken();
       const response = await fetch(`${API_URL}/api/emails/${emailId}/archive`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          'Authorization': `Bearer ${token}`
         }
       });
-      if (!response.ok) throw new Error('Failed to archive');
+      if (!response.ok) throw new Error(`Failed to archive: ${response.status}`);
     } catch (e) {
-      console.error(e);
+      console.error('[emailStore] archiveEmail error:', e);
       // Revert optimistic update
       set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
     }
@@ -648,16 +662,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
 
     try {
-      
+      const token = await getValidToken();
       const response = await fetch(`${API_URL}/api/emails/${emailId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          'Authorization': `Bearer ${token}`
         }
       });
-      if (!response.ok) throw new Error('Failed to delete');
+      if (!response.ok) throw new Error(`Failed to delete: ${response.status}`);
     } catch (e) {
-      console.error(e);
+      console.error('[emailStore] deleteEmail error:', e);
       // Revert optimistic update
       set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
     }

@@ -1,11 +1,9 @@
 import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { useTeams } from '../../../hooks/useTeams';
-
-
 
 const INTEGRATIONS = [
   { name: 'Shopify', color: '#96BF48' },
@@ -19,6 +17,7 @@ export default function IntegrationsSettingsScreen() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [connectShopDomain, setConnectShopDomain] = useState('');
   const [showConnectInput, setShowConnectInput] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
   const teamId = selectedTeamId || teams[0]?.id || null;
 
@@ -57,36 +56,47 @@ export default function IntegrationsSettingsScreen() {
             return [...withoutShopify, { name: 'Shopify', color: '#96BF48', status: 'Bereit', configured: true }];
           });
         }
-      } catch { /* ignore */ }
+      } catch (e) { console.error('Status fetch failed:', e); }
     })();
   }, [teamId]);
 
-  const handleToggleIntegration = useCallback(async (item: any) => {
+  const handleDisconnect = useCallback(async (shopDomain: string) => {
+    const tid = selectedTeamId || teams[0]?.id || null;
+    console.log('[Disconnect] tid:', tid, 'shopDomain:', shopDomain, 'selectedTeamId:', selectedTeamId, 'teams:', teams);
+    if (!tid) {
+      console.error('Disconnect failed: no teamId');
+      Alert.alert('Fehler', 'Kein Team ausgewählt.');
+      return;
+    }
+    setDisconnecting(shopDomain);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${API_URL}/api/shopify/disconnect`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ teamId: tid, shopDomain }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      setActiveIntegrations(prev => prev.filter(i => i.shopDomain !== shopDomain));
+    } catch (e) {
+      console.error('Disconnect failed:', e);
+      Alert.alert('Fehler', 'Trennen fehlgeschlagen. Bitte versuche es erneut.');
+    } finally {
+      setDisconnecting(null);
+    }
+  }, [selectedTeamId, teams]);
+
+  const handleToggleIntegration = useCallback((item: any) => {
     const exists = activeIntegrations.find(i => i.name === item.name);
     if (exists) {
       if (item.name === 'Shopify') {
         if (exists.shopDomain) {
-          Alert.alert(
-            'Shop trennen',
-            `Möchtest du ${exists.shopDomain} trennen?`,
-            [
-              { text: 'Abbrechen', style: 'cancel' },
-              {
-                text: 'Trennen', style: 'destructive', onPress: async () => {
-                  try {
-                    const { data: { session } } = await supabase.auth.getSession();
-                    if (!session || !teamId) return;
-                    await fetch(`${API_URL}/api/shopify/disconnect`, {
-                      method: 'DELETE',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-                      body: JSON.stringify({ teamId, shopDomain: exists.shopDomain }),
-                    });
-                    setActiveIntegrations(prev => prev.filter(i => i !== exists));
-                  } catch { /* ignore */ }
-                }
-              },
-            ]
-          );
+          const ok = window.confirm(`Möchtest du ${exists.shopDomain} trennen?`);
+          if (ok) handleDisconnect(exists.shopDomain);
           return;
         }
         setActiveIntegrations(prev => prev.filter(i => i.name !== 'Shopify'));
@@ -96,22 +106,24 @@ export default function IntegrationsSettingsScreen() {
     } else {
       if (item.name === 'Shopify') {
         if (!teamId) return;
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        if (!shopStatus?.configured) {
-          Alert.alert(
-            'Shopify nicht konfiguriert',
-            'Ein Team-Admin muss zuerst die Shopify API-Schlüssel in den Team-Einstellungen hinterlegen.'
-          );
-          return;
-        }
-        setShowConnectInput(true);
+        (async () => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) return;
+          if (!shopStatus?.configured) {
+            Alert.alert(
+              'Shopify nicht konfiguriert',
+              'Ein Team-Admin muss zuerst die Shopify API-Schlüssel in den Team-Einstellungen hinterlegen.'
+            );
+            return;
+          }
+          setShowConnectInput(true);
+        })();
         return;
       }
       setActiveIntegrations([...activeIntegrations, { ...item, status: 'Verbunden' }]);
       setModalVisible(false);
     }
-  }, [activeIntegrations, shopStatus, teamId]);
+  }, [activeIntegrations, shopStatus, teamId, handleDisconnect]);
 
   const handleConnectShop = useCallback(async () => {
     if (!connectShopDomain.trim() || !teamId) return;
@@ -123,7 +135,7 @@ export default function IntegrationsSettingsScreen() {
       if (!session) return;
       const authUrl = `${API_URL}/api/shopify/auth?shop=${encodeURIComponent(shop)}&team_id=${teamId}&token=${encodeURIComponent(session.access_token)}`;
       window.open(authUrl, '_blank', 'width=800,height=700');
-    } catch { /* ignore */ }
+    } catch (e) { console.error('Connect failed:', e); }
     setShowConnectInput(false);
     setConnectShopDomain('');
   }, [connectShopDomain, teamId]);
@@ -133,14 +145,14 @@ export default function IntegrationsSettingsScreen() {
       <View style={styles.simpleModalContainer}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg }}>
           <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold', color: Colors.text }}>Integration hinzufügen</Text>
-          <TouchableOpacity onPress={() => setModalVisible(false)}>
+          <Pressable onPress={() => setModalVisible(false)}>
             <Text style={{ fontSize: FontSize.lg, color: Colors.textSecondary, fontWeight: 'bold' }}>✕</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
         {INTEGRATIONS.map(item => {
           const isConnected = activeIntegrations.some(i => i.name === item.name);
           return (
-            <TouchableOpacity
+            <Pressable
               key={item.name}
               style={[styles.integrationItem, isConnected && { backgroundColor: Colors.surfaceHover }]}
               onPress={() => handleToggleIntegration(item)}
@@ -152,7 +164,7 @@ export default function IntegrationsSettingsScreen() {
                   Verbunden
                 </Text>
               )}
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
       </View>
@@ -170,17 +182,17 @@ export default function IntegrationsSettingsScreen() {
           </View>
           <Text style={styles.emptyTitle}>Du hast keine Integrationen</Text>
           <Text style={styles.emptySubtitle}>Verbinde deine Lieblingstools</Text>
-          <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
+          <Pressable style={styles.addButton} onPress={() => setModalVisible(true)}>
             <Text style={styles.addButtonText}>Integration hinzufügen</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       ) : (
         <ScrollView style={styles.activeListScroll} contentContainerStyle={styles.activeListContent}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl }}>
             <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold', color: Colors.text }}>Aktive Integrationen</Text>
-            <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
+            <Pressable style={styles.addButton} onPress={() => setModalVisible(true)}>
               <Text style={styles.addButtonText}>Integration hinzufügen</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           <View style={styles.card}>
@@ -195,11 +207,18 @@ export default function IntegrationsSettingsScreen() {
                     </Text>
                   </View>
                 </View>
-                <TouchableOpacity onPress={() => handleToggleIntegration(item)}>
-                  <Text style={{ color: Colors.error, fontFamily: FontFamily, fontSize: FontSize.sm }}>
-                    {item.shopDomain ? 'Trennen' : 'Entfernen'}
+                <View
+                  onClick={() => {
+                    if (disconnecting === item.shopDomain) return;
+                    const ok = window.confirm(`Möchtest du ${item.shopDomain} trennen?`);
+                    if (ok) handleDisconnect(item.shopDomain);
+                  }}
+                  style={{ cursor: 'pointer', padding: Spacing.sm, margin: -Spacing.sm, opacity: disconnecting === item.shopDomain ? 0.5 : 1 }}
+                >
+                  <Text style={{ color: Colors.error, fontFamily: FontFamily, fontSize: FontSize.sm, userSelect: 'none' }}>
+                    {disconnecting === item.shopDomain ? 'Wird getrennt...' : 'Trennen'}
                   </Text>
-                </TouchableOpacity>
+                </View>
               </View>
             ))}
           </View>
@@ -225,15 +244,15 @@ export default function IntegrationsSettingsScreen() {
               autoCorrect={false}
             />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm, marginTop: Spacing.md }}>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.addButton, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border }]}
                 onPress={() => { setShowConnectInput(false); setConnectShopDomain(''); }}
               >
                 <Text style={[styles.addButtonText, { color: Colors.text }]}>Abbrechen</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.addButton} onPress={handleConnectShop}>
+              </Pressable>
+              <Pressable style={styles.addButton} onPress={handleConnectShop}>
                 <Text style={styles.addButtonText}>Verbinden</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>

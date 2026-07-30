@@ -449,6 +449,47 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     return findMissingAttachmentRefs(body, attachments);
   }, [body, attachments]);
 
+  const replaceVariables = useCallback((text: string) => {
+    if (!text) return '';
+    let result = text;
+    
+    // {{subject}}
+    let originalSubject = sourceEmail?.subject || subject || '';
+    if (originalSubject.startsWith('Re: ')) originalSubject = originalSubject.substring(4);
+    if (originalSubject.startsWith('Fwd: ')) originalSubject = originalSubject.substring(5);
+    result = result.replace(/\{\{subject\}\}/gi, originalSubject);
+    
+    // {{agentName}}
+    const agentName = userSigSettings?.display_name || '';
+    result = result.replace(/\{\{agentName\}\}/gi, agentName);
+    
+    // {{customerName}}
+    let customerName = '';
+    if (sourceEmail?.direction === 'inbound' && sourceEmail?.from_address) {
+       const match = sourceEmail.from_address.match(/^([^<]+)/);
+       if (match && match[1].trim() && !match[1].includes('@')) {
+         customerName = match[1].trim().replace(/^["']|["']$/g, '');
+       }
+    } else if (sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length) {
+       const match = sourceEmail.to_addresses[0].match(/^([^<]+)/);
+       if (match && match[1].trim() && !match[1].includes('@')) {
+         customerName = match[1].trim().replace(/^["']|["']$/g, '');
+       }
+    }
+    result = result.replace(/\{\{customerName\}\}/gi, customerName);
+    
+    // {{orderNumber}} - Look for something like #1234 in the subject
+    let orderNumber = '';
+    const subjectMatch = (sourceEmail?.subject || '').match(/#\d{4,}/);
+    if (subjectMatch) {
+       orderNumber = subjectMatch[0];
+    }
+    result = result.replace(/\{\{orderNumber\}\}/gi, orderNumber);
+    
+    return result;
+  }, [sourceEmail, subject, userSigSettings]);
+
+
   const handleSend = useCallback(async () => {
     // 1. Check uploading
     if (hasUploading) {
@@ -855,8 +896,8 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
                   key={tpl.id}
                   style={styles.pickerOption}
                   onPress={() => {
-                    if (tpl.subject) setSubject(tpl.subject);
-                    setBody(tpl.body);
+                    if (tpl.subject) setSubject(replaceVariables(tpl.subject));
+                    setBody(replaceVariables(tpl.body));
                     setShowTemplatePicker(false);
                   }}
                 >

@@ -2,6 +2,7 @@ import { Queue, Worker, Job } from "bullmq";
 import Redis from "ioredis";
 import { getSupabaseAdmin } from "./auth.service.js";
 import { sendPushNotification } from "./push.service.js";
+import { syncEmailToShopifyOrders } from "./shopify.service.js";
 import crypto from "crypto";
 
 // Redis Connection
@@ -197,6 +198,18 @@ export function startEmailWorker() {
       } catch (pushErr) {
         console.error(`[Queue] Failed to send push notifications:`, pushErr);
       }
+    }
+
+    // 6. Sync to Shopify orders if applicable
+    if (insertedEmail?.id && !isDeleted && mappedDirection === "inbound") {
+      syncEmailToShopifyOrders({
+        teamId: data.teamId,
+        customerEmail: data.fromAddress,
+        subject: data.subject,
+        direction: "inbound",
+        fromAddress: data.fromAddress,
+        snippet: data.bodyText,
+      });
     }
 
     return { status: 'success', emailId: insertedEmail.id };

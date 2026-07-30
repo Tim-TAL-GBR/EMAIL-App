@@ -36,46 +36,44 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
   const [addressDraft, setAddressDraft] = useState<any>({});
   const [updating, setUpdating] = useState(false);
 
-  useEffect(() => {
+  const fetchCustomer = useCallback(async () => {
     if (!teamId || !email) {
       setLoading(false);
       return;
     }
-
-    const fetchCustomer = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        
-        const response = await fetch(`${API_URL}/api/shopify/customer?email=${encodeURIComponent(email)}&team_id=${teamId}`, {
-          headers: {
-            'Authorization': `Bearer ${session?.access_token}`
-          }
-        });
-
-        if (response.status === 404) {
-          setData(null);
-          onResult?.({ connected: false, hasCustomer: false });
-          return;
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${API_URL}/api/shopify/customer?email=${encodeURIComponent(email)}&team_id=${teamId}`, {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
         }
+      });
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch Shopify data');
-        }
-
-        const json = await response.json();
-        setData(json);
-        onResult?.({ connected: true, hasCustomer: !!json.customer });
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
+      if (response.status === 404) {
+        setData(null);
+        onResult?.({ connected: false, hasCustomer: false });
+        return;
       }
-    };
 
+      if (!response.ok) {
+        throw new Error('Failed to fetch Shopify data');
+      }
+
+      const json = await response.json();
+      setData(json);
+      onResult?.({ connected: true, hasCustomer: !!json.customer });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [email, teamId, session?.access_token, onResult]);
+
+  useEffect(() => {
     fetchCustomer();
-  }, [email, teamId]);
+  }, [fetchCustomer]);
 
   const fetchOrderDetail = useCallback(async (orderId: string) => {
     if (!teamId) return;
@@ -250,6 +248,22 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
     return (
       <View style={[styles.card, { alignItems: 'center', justifyContent: 'center', padding: Spacing.xl }]}>
         <ActivityIndicator size="small" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.card, { padding: Spacing.sm }]}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Shopify</Text>
+        </View>
+        <Text style={{ fontSize: 10, color: Colors.error, fontFamily: FontFamily, marginTop: Spacing.xs }}>
+          Verbindung fehlgeschlagen. Bitte in Einstellungen → Integrationen prüfen.
+        </Text>
+        <TouchableOpacity onPress={() => { setError(null); setLoading(true); fetchCustomer(); }} style={{ marginTop: Spacing.xs }}>
+          <Text style={{ fontSize: 10, color: Colors.primary, fontFamily: FontFamily }}>Erneut versuchen</Text>
+        </TouchableOpacity>
       </View>
     );
   }

@@ -16,14 +16,12 @@ teamRouter.get("/", async (req, res) => {
     const userId = req.user!.sub;
     const supabase = getSupabaseAdmin();
 
-    const { data, error } = await supabase
+    const { data: teamMembers, error } = await supabase
       .from("team_members")
       .select(`
         role,
         joined_at,
-        teams (
-          id, name, slug, created_at, parent_id
-        )
+        team_id
       `)
       .eq("user_id", userId)
       .order("joined_at");
@@ -33,24 +31,39 @@ teamRouter.get("/", async (req, res) => {
       return;
     }
 
+    const teamIds = Array.from(new Set(teamMembers?.map(tm => tm.team_id) ?? []));
+
+    // Fetch the actual teams
+    const { data: userTeams, error: teamsError } = await supabase
+      .from("teams")
+      .select("id, name, slug, created_at, parent_id")
+      .in("id", teamIds);
+
+    if (teamsError) {
+      res.status(500).json({ error: teamsError.message });
+      return;
+    }
+
     // Also fetch sub-teams where user is a member of the parent org
     const { data: subTeams } = await supabase
       .from("teams")
       .select("id, name, slug, created_at, parent_id")
       .not("parent_id", "is", null);
 
-    const teamIds = new Set(data?.map((tm: any) => tm.teams?.id) ?? []);
-    const orgIds = data?.filter((tm: any) => !tm.teams?.parent_id).map((tm: any) => tm.teams?.id) ?? [];
+    const orgIds = userTeams?.filter((t: any) => !t.parent_id).map((t: any) => t.id) ?? [];
 
     const extraSubTeams = (subTeams ?? []).filter(
-      (st) => !teamIds.has(st.id) && orgIds.includes(st.parent_id)
+      (st) => !teamIds.includes(st.id) && orgIds.includes(st.parent_id)
     );
 
     const teams = [
-      ...(data?.map((tm: any) => ({
-        ...tm.teams,
-        myRole: tm.role,
-      })) ?? []),
+      ...(userTeams?.map((t: any) => {
+        const member = teamMembers?.find(tm => tm.team_id === t.id);
+        return {
+          ...t,
+          myRole: member?.role,
+        };
+      }) ?? []),
       ...extraSubTeams.map((st) => ({
         ...st,
         myRole: "member" as const,

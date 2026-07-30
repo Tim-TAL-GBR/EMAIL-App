@@ -65,7 +65,12 @@ export default function TemplatesScreen() {
                 )}
               </View>
             </View>
-            {item.subject && <Text style={styles.cardSubject}>{item.subject}</Text>}
+            {item.subject && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.xs }}>
+                <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.textSecondary, marginRight: 4 }}>Betreff:</Text>
+                <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.text }}>{item.subject}</Text>
+              </View>
+            )}
             <Text style={styles.cardPreview} numberOfLines={2}>{item.body}</Text>
             <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteButton}>
               <Text style={styles.deleteText}>Löschen</Text>

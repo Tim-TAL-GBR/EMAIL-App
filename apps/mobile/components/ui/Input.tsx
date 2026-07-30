@@ -17,13 +17,18 @@ export function Input({ label, icon, error, style, ...props }: InputProps) {
       <View
         style={[
           styles.inputContainer,
+          props.multiline && { alignItems: 'flex-start', paddingVertical: Spacing.md },
           isFocused && styles.inputContainerFocused,
           error && styles.inputContainerError,
         ]}
       >
-        {icon && <Text style={styles.icon}>{icon}</Text>}
+        {icon && (
+          <Text style={[styles.icon, props.multiline && { marginTop: 2 }]}>
+            {icon}
+          </Text>
+        )}
         <TextInput
-          style={[styles.input, style]}
+          style={[styles.input, props.multiline && { textAlignVertical: 'top' }, style]}
           placeholderTextColor={Colors.textTertiary}
           onFocus={(e) => {
             setIsFocused(true);
@@ -60,7 +65,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
-    height: 48,
+    minHeight: 48,
     ...Platform.select({
       ios: Shadows.subtle,
       android: { elevation: 1 },
@@ -83,7 +88,6 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily,
     fontSize: FontSize.md,
     color: Colors.text,
-    height: '100%',
   },
   errorText: {
     fontFamily: FontFamily,

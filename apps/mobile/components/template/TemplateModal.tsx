@@ -76,6 +76,16 @@ export function TemplateModal({ visible, onClose, template }: TemplateModalProps
           <Input label="Betreff (optional)" placeholder="Re: {{subject}}" value={subject} onChangeText={setSubject} />
           <Input label="Text" placeholder="Vorlagentext schreiben..." value={body} onChangeText={setBody} multiline style={styles.bodyInput} />
           
+          <View style={styles.variablesContainer}>
+            <Text style={styles.variablesTitle}>Verfügbare Variablen:</Text>
+            <View style={styles.variablesList}>
+              <Text style={styles.variableItem}><Text style={styles.variableCode}>{"{{subject}}"}</Text> - Ursprünglicher Betreff</Text>
+              <Text style={styles.variableItem}><Text style={styles.variableCode}>{"{{customerName}}"}</Text> - Name des Kunden</Text>
+              <Text style={styles.variableItem}><Text style={styles.variableCode}>{"{{orderNumber}}"}</Text> - Bestellnummer</Text>
+              <Text style={styles.variableItem}><Text style={styles.variableCode}>{"{{agentName}}"}</Text> - Dein Name</Text>
+            </View>
+          </View>
+
           <View style={styles.switchContainer}>
             <View style={styles.switchTextContainer}>
               <Text style={styles.switchLabel}>In Shopify anzeigen</Text>
@@ -114,4 +124,12 @@ const styles = StyleSheet.create({
   switchTextContainer: { flex: 1, paddingRight: Spacing.md },
   switchLabel: { fontFamily: FontFamily, fontSize: FontSize.md, fontWeight: FontWeight.medium, color: Colors.text },
   switchDescription: { fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2 },
+  variablesContainer: {
+    backgroundColor: Colors.surfaceHover, padding: Spacing.md, borderRadius: BorderRadius.md,
+    marginTop: -Spacing.sm, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border,
+  },
+  variablesTitle: { fontFamily: FontFamily, fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.textSecondary, marginBottom: Spacing.xs },
+  variablesList: { paddingLeft: Spacing.xs },
+  variableItem: { fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: 2 },
+  variableCode: { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontWeight: FontWeight.bold, color: Colors.primary },
 });

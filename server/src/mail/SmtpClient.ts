@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "../services/auth.service.js";
 import { mailManager } from "./MailManager.js";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
 import { decrypt } from "../utils/encryption.js";
+import { syncEmailToShopifyOrders } from "../services/shopify.service.js";
 
 interface SendEmailParams {
   inboxId: string;
@@ -168,10 +169,21 @@ export class SmtpClient {
         is_inline: att.is_inline || false
       }));
       
-      const { error: attError } = await supabase.from("email_attachments").insert(attsToInsert);
+      const { error: attError } =       await supabase.from("email_attachments").insert(attsToInsert);
       if (attError) {
         console.error(`[SmtpClient] Failed to save attachments to DB:`, attError);
       }
+    }
+
+    if (newEmail) {
+      syncEmailToShopifyOrders({
+        teamId: params.teamId,
+        customerEmail: params.to[0] || "",
+        subject: params.subject,
+        direction: "outbound",
+        fromAddress: senderAddress,
+        snippet: params.bodyText,
+      });
     }
   }
 }

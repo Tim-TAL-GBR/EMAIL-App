@@ -89,8 +89,8 @@ export const requireTeamPermission = (permissionName: string, idParam = "id") =>
         return;
       }
 
-      const teamId = req.params[idParam];
-      if (!teamId) {
+      const teamId = Array.isArray(req.params[idParam]) ? req.params[idParam][0] : req.params[idParam];
+      if (!teamId || typeof teamId !== 'string') {
         res.status(400).json({ error: "Missing team ID parameter" });
         return;
       }
