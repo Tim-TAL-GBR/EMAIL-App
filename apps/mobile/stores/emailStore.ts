@@ -174,6 +174,8 @@ interface EmailState {
   archiveEmail: (emailId: string) => Promise<void>;
   /** Delete an email */
   deleteEmail: (emailId: string) => Promise<void>;
+  /** Bulk action on multiple emails (read/archive/delete) */
+  bulkActionEmails: (emailIds: string[], action: 'read' | 'archive' | 'delete') => Promise<void>;
 
   /** Pinned threads for the sidebar */
   pinnedThreads: { thread_id: string, subject: string, created_at: string }[];
@@ -688,6 +690,71 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       console.error('[emailStore] deleteEmail error:', e);
       // Revert optimistic update
       set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
+    }
+  },
+
+  bulkActionEmails: async (emailIds, action) => {
+    const originalEmails = get().emails;
+    const originalThreads = get().threads;
+    const originalActive = get().activeEmailId;
+
+    // Optimistic update
+    set((state) => {
+      let emails = [...state.emails];
+      if (action === 'delete' || action === 'archive') {
+        emails = emails.filter((e) => !emailIds.includes(e.id));
+      } else if (action === 'read') {
+        emails = emails.map((e) => emailIds.includes(e.id) ? { ...e, is_read: true } : e);
+      }
+
+      let threads = state.threads.map(t => {
+        if (action === 'delete' || action === 'archive') {
+          const newEmails = t.emails.filter(e => !emailIds.includes(e.id));
+          if (newEmails.length === 0) return null;
+          return {
+            ...t,
+            emails: newEmails,
+            latestEmail: newEmails[newEmails.length - 1],
+            is_read: newEmails.every(e => e.is_read),
+            is_starred: newEmails.some(e => e.is_starred),
+          };
+        } else if (action === 'read') {
+          if (t.emails.some(e => emailIds.includes(e.id))) {
+            const newEmails = t.emails.map(e => emailIds.includes(e.id) ? { ...e, is_read: true } : e);
+            return {
+              ...t,
+              emails: newEmails,
+              latestEmail: newEmails[newEmails.length - 1],
+              is_read: newEmails.every(e => e.is_read),
+            };
+          }
+        }
+        return t;
+      }).filter(Boolean) as Thread[];
+
+      return {
+        emails,
+        threads,
+        activeEmailId: originalActive && emailIds.includes(originalActive) && (action === 'delete' || action === 'archive') ? null : originalActive,
+      };
+    });
+
+    try {
+      const token = await getValidToken();
+      const response = await fetch(`${API_URL}/api/emails/bulk-action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ emailIds, action })
+      });
+      if (!response.ok) throw new Error('Failed to perform bulk action');
+    } catch (e) {
+      console.error('[emailStore] bulkActionEmails error:', e);
+      // Revert optimistic update
+      set({ emails: originalEmails, threads: originalThreads, activeEmailId: originalActive });
+      throw e;
     }
   },
 

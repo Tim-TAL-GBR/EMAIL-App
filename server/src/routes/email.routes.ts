@@ -11,6 +11,102 @@ export const emailRouter: Router = Router();
 
 emailRouter.use(requireAuth);
 
+emailRouter.post(
+  "/bulk-action",
+  validateBody(
+    z.object({
+      emailIds: z.array(z.string().uuid()).min(1),
+      action: z.enum(["read", "archive", "delete"]),
+    })
+  ),
+  async (req, res) => {
+    try {
+      const userId = req.user!.sub;
+      const { emailIds, action } = req.body;
+
+      const supabase = getSupabaseAdmin();
+      const { data: emails, error } = await supabase
+        .from("emails")
+        .select("id, inbox_id, imap_uid")
+        .in("id", emailIds);
+
+      if (error) {
+        res.status(500).json({ error: safeErrorMessage(error) });
+        return;
+      }
+
+      // Filter to emails the user may access
+      const allowed: any[] = [];
+      for (const email of emails || []) {
+        if (await canAccessEmail(userId, email.id)) allowed.push(email);
+      }
+
+      if (allowed.length === 0) {
+        res.status(403).json({ error: "No access to these emails" });
+        return;
+      }
+
+      const allowedIds = allowed.map((e) => e.id);
+
+      if (action === "read") {
+        const { error: updateError } = await supabase
+          .from("emails")
+          .update({ is_read: true })
+          .in("id", allowedIds);
+        if (updateError) {
+          res.status(500).json({ error: safeErrorMessage(updateError) });
+          return;
+        }
+      } else if (action === "archive") {
+        const { error: updateError } = await supabase
+          .from("emails")
+          .update({ is_archived: true })
+          .in("id", allowedIds);
+        if (updateError) {
+          res.status(500).json({ error: safeErrorMessage(updateError) });
+          return;
+        }
+        const { mailManager } = await import("../mail/MailManager.js");
+        for (const email of allowed) {
+          if (email.imap_uid) {
+            const client = mailManager.getClient(email.inbox_id);
+            if (client) {
+              await client.archiveMessage(email.imap_uid).catch((e: any) =>
+                console.error("[EmailRoutes] bulk archive IMAP error:", e)
+              );
+            }
+          }
+        }
+      } else {
+        const { error: updateError } = await supabase
+          .from("emails")
+          .update({ is_deleted: true, is_archived: false })
+          .in("id", allowedIds);
+        if (updateError) {
+          res.status(500).json({ error: safeErrorMessage(updateError) });
+          return;
+        }
+        const { mailManager } = await import("../mail/MailManager.js");
+        for (const email of allowed) {
+          if (email.imap_uid) {
+            const client = mailManager.getClient(email.inbox_id);
+            if (client) {
+              await client.deleteMessage(email.imap_uid).catch((e: any) =>
+                console.error("[EmailRoutes] bulk delete IMAP error:", e)
+              );
+            }
+          }
+        }
+      }
+
+      res.json({ success: true, count: allowed.length });
+    } catch (err: any) {
+      console.error("[EmailRoutes] POST /bulk-action error:", err);
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
+  }
+);
+
 emailRouter.get("/:emailId", async (req, res) => {
   try {
     const userId = req.user!.sub;
@@ -276,7 +372,7 @@ emailRouter.delete("/:emailId", async (req, res) => {
 
     const { error } = await supabase
       .from("emails")
-      .update({ is_deleted: true })
+      .update({ is_deleted: true, is_archived: false })
       .eq("id", emailId);
 
     if (error) {
