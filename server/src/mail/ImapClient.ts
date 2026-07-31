@@ -306,7 +306,7 @@ export class ImapClient {
 
       const { error: updateError } = await supabase
         .from("emails")
-        .update({ is_deleted: true })
+        .update({ is_deleted: true, is_archived: false })
         .in("id", missingIds);
 
       if (updateError) {
@@ -341,7 +341,7 @@ export class ImapClient {
 
       const { error: updateError } = await supabase
         .from("emails")
-        .update({ is_deleted: true })
+        .update({ is_deleted: true, is_archived: false })
         .in("id", ids);
 
       if (updateError) {
