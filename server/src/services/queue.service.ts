@@ -132,6 +132,24 @@ export function startEmailWorker() {
       // Update its mailbox metadata so folder moves (INBOX -> Trash/Archive) are reflected.
       if (error.code === '23505') {
         console.log(`[Queue] Email ${data.messageId} already exists, updating mailbox metadata.`);
+
+        // Fetch current row so a re-sync (e.g. the periodic re-fetch of all
+        // unseen messages in INBOX) can never override user decisions.
+        const { data: existing } = await supabase
+          .from("emails")
+          .select("status, is_read")
+          .eq("message_id", data.messageId)
+          .eq("inbox_id", data.inboxId)
+          .maybeSingle();
+
+        // Only move the status to "done" when the email now lives in a
+        // terminal folder (archive/trash/sent). Re-syncing from INBOX maps to
+        // "open" and must NOT resurrect a conversation the user already closed.
+        const status = mappedStatus === "done" ? "done" : existing?.status ?? mappedStatus;
+        // Never downgrade back to unread: server read-state only ever wins in
+        // the direction "read", otherwise the app's read flag is preserved.
+        const isRead = data.isRead || existing?.is_read || false;
+
         const { error: updateError } = await supabase
           .from("emails")
           .update({
@@ -139,9 +157,9 @@ export function startEmailWorker() {
             imap_uid: data.imapUid,
             is_deleted: isDeleted,
             is_archived: isArchived,
-            status: mappedStatus,
+            status,
             direction: mappedDirection,
-            is_read: data.isRead,
+            is_read: isRead,
           })
           .eq("message_id", data.messageId)
           .eq("inbox_id", data.inboxId);
