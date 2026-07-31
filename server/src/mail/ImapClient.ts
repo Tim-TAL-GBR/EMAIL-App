@@ -22,6 +22,7 @@ export class ImapClient {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private syncTimer: NodeJS.Timeout | null = null;
   private expungeDebounce: NodeJS.Timeout | null = null;
+  private deletionSyncRunning = false;
   private readonly SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
   
   private folderMap: {
@@ -101,16 +102,11 @@ export class ImapClient {
         }, 3000);
       });
 
-      // Detect \Deleted flag additions in the selected mailbox
-      this.client.on("flags", async (data) => {
-        try {
-          if (data.flags.has("\\Deleted") && data.uid) {
-            await this.markEmailsDeletedByUid([data.uid]);
-          }
-        } catch (err) {
-          console.error(`[ImapClient] Error handling flags event for ${this.config.user}:`, err);
-        }
-      });
+      // NOTE: We intentionally do NOT mark emails deleted on the \Deleted flag
+      // event. The flag is briefly set by external clients when moving messages
+      // (COPY + DELETE + EXPUNGE), which caused false deletions when the flag
+      // was later cleared. Deletions are instead detected by the expunge event
+      // and the periodic folder scan below, which are reliable.
 
       // Periodic full deletion scan (catches Trash/Archive/Sent changes while running)
       if (this.syncTimer) clearInterval(this.syncTimer);
@@ -257,16 +253,23 @@ export class ImapClient {
    * no longer exists on the IMAP server (deleted/expunged/moved away).
    */
   private async syncDeletedEmails(): Promise<void> {
-    if (!this.isConnected) return;
-    console.log(`[ImapClient] Running deletion sync for ${this.config.user}...`);
-    for (const f of this.allFolders) {
-      await this.syncFolderDeletions(f.path);
-    }
-    // Re-select INBOX so the IDLE connection keeps watching the primary mailbox
+    // Never run overlapping scans (5-min timer + expunge debounce + reconnect
+    // could otherwise interleave on the same connection and corrupt results).
+    if (!this.isConnected || this.deletionSyncRunning) return;
+    this.deletionSyncRunning = true;
     try {
-      await this.client.mailboxOpen("INBOX");
-    } catch (e) {
-      console.error(`[ImapClient] Failed to re-open INBOX after deletion sync:`, e);
+      console.log(`[ImapClient] Running deletion sync for ${this.config.user}...`);
+      for (const f of this.allFolders) {
+        await this.syncFolderDeletions(f.path);
+      }
+      // Re-select INBOX so the IDLE connection keeps watching the primary mailbox
+      try {
+        await this.client.mailboxOpen("INBOX");
+      } catch (e) {
+        console.error(`[ImapClient] Failed to re-open INBOX after deletion sync:`, e);
+      }
+    } finally {
+      this.deletionSyncRunning = false;
     }
   }
 
@@ -278,6 +281,18 @@ export class ImapClient {
 
       // All UIDs currently present in this folder on the server
       const serverUids = (await this.client.search({ all: true }, { uid: true })) || [];
+
+      // Sanity guard: an incomplete search result (e.g. connection glitch or a
+      // server that caps results) must NEVER trigger mass-deletions. The search
+      // should return exactly as many UIDs as the mailbox reports; if it returns
+      // fewer, treat the result as unreliable and skip this folder.
+      if (serverUids.length < this.client.mailbox.exists) {
+        console.warn(
+          `[ImapClient] Incomplete search for ${mailboxPath}: got ${serverUids.length} UIDs but mailbox reports ${this.client.mailbox.exists} - skipping deletion sync for this folder.`
+        );
+        return;
+      }
+
       const serverUidSet = new Set(serverUids);
 
       const supabase = getSupabaseAdmin();
