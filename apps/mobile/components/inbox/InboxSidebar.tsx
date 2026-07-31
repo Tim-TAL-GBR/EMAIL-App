@@ -286,11 +286,36 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
                 <TouchableOpacity 
                   key={pin.thread_id} 
                   style={[styles.accountItem]}
-                  onPress={() => {
-                    useNavigationStore.getState().setEmailId(pin.thread_id);
+                  onPress={async () => {
+                    const nav = useNavigationStore.getState();
+                    // Find the inbox of the thread so we can switch to the
+                    // context that contains it (outside the inbox it would not load).
+                    let threadInboxId: string | undefined;
+                    const { data } = await supabase
+                      .from('emails')
+                      .select('inbox_id')
+                      .eq('thread_id', pin.thread_id)
+                      .order('received_at', { ascending: false })
+                      .limit(1)
+                      .single();
+                    threadInboxId = data?.inbox_id;
+
+                    const inbox = inboxes.find(i => i.id === threadInboxId);
+                    if (inbox?.type === 'shared' && inbox.team) {
+                      nav.setContext('team', inbox.team.id, 'all');
+                    } else if (inbox?.type === 'shared') {
+                      nav.setContext('global_inbox', 'global', 'all');
+                    } else if (threadInboxId) {
+                      nav.setContext('private_inbox', threadInboxId, 'all');
+                    } else {
+                      nav.setContext('global_inbox', 'global', 'all');
+                    }
+                    nav.setEmailId(pin.thread_id);
                     useEmailStore.getState().setActiveEmail(pin.thread_id);
                     if (!isDesktop) {
-                      router.push(`/inbox/${pin.thread_id}` as any);
+                      router.push(`/email/${pin.thread_id}` as any);
+                    } else if (pathname.includes('/tasks') || pathname.includes('/calendars')) {
+                      router.push('/');
                     }
                   }}
                 >
