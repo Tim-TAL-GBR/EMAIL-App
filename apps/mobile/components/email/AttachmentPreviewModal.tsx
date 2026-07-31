@@ -58,7 +58,7 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
       const { data, error } = await supabase
         .storage
         .from('email_attachments')
-        .createSignedUrl(attachment.storage_path, 120);
+        .createSignedUrl(attachment.storage_path, 120, { download: attachment.file_name });
       if (error) throw error;
 
       if (Platform.OS === 'web') {
