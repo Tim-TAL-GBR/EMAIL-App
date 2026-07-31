@@ -281,6 +281,12 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     });
   }, [threads, searchText, activeFilter, activeContextType, activeContextId, inboxes, user?.id]);
 
+  // Keep the store's visible thread list in sync so that after a delete/archive
+  // the next thread opened is the next one actually shown in this list.
+  React.useEffect(() => {
+    useEmailStore.getState().setVisibleThreadIds(filteredThreads.map(t => t.id));
+  }, [filteredThreads]);
+
   const handleToggleSelect = (thread: Thread) => {
     setSelectedThreadIds(prev => {
       const newSet = new Set(prev);

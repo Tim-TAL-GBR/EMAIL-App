@@ -24,6 +24,39 @@ async function getValidToken(): Promise<string> {
   return session.access_token;
 }
 
+/**
+ * Picks the thread that should be selected after a thread was removed.
+ * Prefers the next thread in the list that is actually DISPLAYED
+ * (visibleThreadIds), falling back to the full store list. This prevents a
+ * closed/filtered-out conversation from opening after a delete/archive.
+ */
+function pickNextVisibleThreadId(
+  visibleIds: string[],
+  removedThreadId: string,
+  originalThreads: Thread[],
+  newThreads: Thread[],
+): string | null {
+  const exists = (id: string | undefined) => id !== undefined && newThreads.some(t => t.id === id);
+
+  const removedIndex = visibleIds.indexOf(removedThreadId);
+  if (removedIndex !== -1) {
+    const after = visibleIds.slice(removedIndex + 1).find(id => exists(id));
+    if (after) return after;
+    const before = visibleIds.slice(0, removedIndex).reverse().find(id => exists(id));
+    if (before) return before;
+  }
+
+  const deletedIndex = originalThreads.indexOf(originalThreads.find(t => t.id === removedThreadId) as Thread);
+  const nextInOriginal = originalThreads[deletedIndex + 1];
+  const prevInOriginal = originalThreads[deletedIndex - 1];
+  const fallback = newThreads.find(t => t.id === nextInOriginal?.id)
+    ?? newThreads.find(t => t.id === prevInOriginal?.id)
+    ?? newThreads[Math.min(deletedIndex, newThreads.length - 1)]
+    ?? newThreads[newThreads.length - 1]
+    ?? newThreads[0];
+  return fallback?.id ?? null;
+}
+
 /** Email status enum matching the database */
 export type EmailStatus = 'open' | 'in_progress' | 'done';
 
@@ -174,6 +207,10 @@ interface EmailState {
   archiveEmail: (emailId: string) => Promise<void>;
   /** Delete an email */
   deleteEmail: (emailId: string) => Promise<void>;
+  /** IDs of the currently displayed threads (in list order) – used to pick the next thread after delete/archive */
+  visibleThreadIds: string[];
+  /** Keep in sync with the thread list actually rendered in the UI */
+  setVisibleThreadIds: (ids: string[]) => void;
   /** Bulk action on multiple emails (read/archive/delete) */
   bulkActionEmails: (emailIds: string[], action: 'read' | 'archive' | 'delete') => Promise<void>;
 
@@ -189,6 +226,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   emails: [],
   threads: [],
   activeEmailId: null,
+  visibleThreadIds: [],
+  setVisibleThreadIds: (ids) => set({ visibleThreadIds: ids }),
   isLoading: false,
   isLoadingMore: false,
   hasMoreEmails: false,
@@ -620,16 +659,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const deletedThread = originalThreads.find(t => t.emails.some(e => e.id === emailId));
     const wasViewingDeleted = deletedThread && previousSelectedId === deletedThread.id;
     if (wasViewingDeleted) {
-      const deletedIndex = originalThreads.indexOf(deletedThread);
-      const nextInOriginal = originalThreads[deletedIndex + 1];
-      const prevInOriginal = originalThreads[deletedIndex - 1];
-      const nextThread = newThreads.find(t => t.id === nextInOriginal?.id)
-        ?? newThreads.find(t => t.id === prevInOriginal?.id)
-        ?? newThreads[Math.min(deletedIndex, newThreads.length - 1)]
-        ?? newThreads[newThreads.length - 1]
-        ?? newThreads[0]
-        ?? null;
-      useNavigationStore.getState().setEmailId(nextThread?.id ?? null);
+      const nextId = pickNextVisibleThreadId(get().visibleThreadIds, deletedThread.id, originalThreads, newThreads);
+      useNavigationStore.getState().setEmailId(nextId);
     } else if (!previousSelectedId && newThreads.length > 0) {
       useNavigationStore.getState().setEmailId(newThreads[0].id);
     }
@@ -663,16 +694,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const deletedThread = originalThreads.find(t => t.emails.some(e => e.id === emailId));
     const wasViewingDeleted = deletedThread && previousSelectedId === deletedThread.id;
     if (wasViewingDeleted) {
-      const deletedIndex = originalThreads.indexOf(deletedThread);
-      const nextInOriginal = originalThreads[deletedIndex + 1];
-      const prevInOriginal = originalThreads[deletedIndex - 1];
-      const nextThread = newThreads.find(t => t.id === nextInOriginal?.id)
-        ?? newThreads.find(t => t.id === prevInOriginal?.id)
-        ?? newThreads[Math.min(deletedIndex, newThreads.length - 1)]
-        ?? newThreads[newThreads.length - 1]
-        ?? newThreads[0]
-        ?? null;
-      useNavigationStore.getState().setEmailId(nextThread?.id ?? null);
+      const nextId = pickNextVisibleThreadId(get().visibleThreadIds, deletedThread.id, originalThreads, newThreads);
+      useNavigationStore.getState().setEmailId(nextId);
     } else if (!previousSelectedId && newThreads.length > 0) {
       useNavigationStore.getState().setEmailId(newThreads[0].id);
     }
