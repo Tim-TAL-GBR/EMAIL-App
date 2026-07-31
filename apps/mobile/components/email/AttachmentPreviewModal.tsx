@@ -62,10 +62,15 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
       if (error) throw error;
 
       if (Platform.OS === 'web') {
+        const res = await fetch(data.signedUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = data.signedUrl;
+        a.href = url;
         a.download = attachment.file_name;
         a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
       } else {
         const dest = new File(Paths.document, attachment.file_name);
         const file = await File.downloadFileAsync(data.signedUrl, dest, { idempotent: true });
