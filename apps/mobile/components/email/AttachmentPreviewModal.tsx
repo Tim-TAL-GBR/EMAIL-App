@@ -109,17 +109,23 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
           )}
 
           {!loading && signedUrl && isPdf && isWeb && (
-            <iframe 
-              src={signedUrl} 
-              style={{ width: '100%', height: '100%', border: 'none' }} 
-              title="PDF Preview"
-            />
+            <View style={styles.pdfContainer}>
+              <iframe 
+                src={signedUrl} 
+                style={{ width: '100%', height: '100%', border: 'none' }} 
+                title="PDF Preview"
+              />
+            </View>
           )}
 
-          {!loading && signedUrl && (!isImage && !(isPdf && isWeb)) && (
+          {!loading && signedUrl && !isImage && (
             <View style={styles.fallbackContainer}>
-              <Feather name="file" size={64} color="#CCC" />
-              <Text style={styles.fallbackText}>Keine Vorschau verfügbar</Text>
+              {!(isPdf && isWeb) && (
+                <>
+                  <Feather name="file" size={64} color="#CCC" />
+                  <Text style={styles.fallbackText}>Keine Vorschau verfügbar</Text>
+                </>
+              )}
               <TouchableOpacity style={styles.downloadButton} onPress={handleDownload}>
                 <Text style={styles.downloadButtonText}>Datei öffnen / herunterladen</Text>
               </TouchableOpacity>
@@ -168,12 +174,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  pdfContainer: {
+    flex: 1,
+    width: '100%',
+  },
   image: {
     width: '100%',
     height: '100%',
   },
   fallbackContainer: {
     alignItems: 'center',
+    paddingBottom: Spacing.lg,
   },
   fallbackText: {
     color: '#CCC',
