@@ -128,9 +128,27 @@ export function startEmailWorker() {
       .single();
 
     if (error) {
-      // If it's a unique constraint violation (duplicate message_id in the same inbox), ignore
+      // Unique constraint violation: email already exists (same message_id).
+      // Update its mailbox metadata so folder moves (INBOX -> Trash/Archive) are reflected.
       if (error.code === '23505') {
-        console.log(`[Queue] Email ${data.messageId} already exists, skipping.`);
+        console.log(`[Queue] Email ${data.messageId} already exists, updating mailbox metadata.`);
+        const { error: updateError } = await supabase
+          .from("emails")
+          .update({
+            mailbox_name: mailboxName,
+            imap_uid: data.imapUid,
+            is_deleted: isDeleted,
+            is_archived: isArchived,
+            status: mappedStatus,
+            direction: mappedDirection,
+            is_read: data.isRead,
+          })
+          .eq("message_id", data.messageId)
+          .eq("inbox_id", data.inboxId);
+
+        if (updateError) {
+          console.error(`[Queue] Failed to update existing email ${data.messageId}:`, updateError);
+        }
         return { status: 'duplicate', emailId: null };
       }
       throw new Error(`DB Insert Error: ${error.message}`);

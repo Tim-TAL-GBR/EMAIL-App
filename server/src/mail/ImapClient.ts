@@ -20,6 +20,9 @@ export class ImapClient {
   private config: ImapConfig;
   private isConnected = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private syncTimer: NodeJS.Timeout | null = null;
+  private expungeDebounce: NodeJS.Timeout | null = null;
+  private readonly SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
   
   private folderMap: {
     inbox: string;
@@ -87,6 +90,34 @@ export class ImapClient {
         await this.fetchFolder("INBOX");
       });
 
+      // Detect deleted messages in the selected mailbox (INBOX)
+      this.client.on("expunge", async (data) => {
+        console.log(`[ImapClient] Message expunged for ${this.config.user}:`, data);
+        // Debounce: multiple expunges fire in sequence when deleting several messages
+        if (this.expungeDebounce) clearTimeout(this.expungeDebounce);
+        this.expungeDebounce = setTimeout(() => {
+          this.expungeDebounce = null;
+          this.syncDeletedEmails();
+        }, 3000);
+      });
+
+      // Detect \Deleted flag additions in the selected mailbox
+      this.client.on("flags", async (data) => {
+        try {
+          if (data.flags.has("\\Deleted") && data.uid) {
+            await this.markEmailsDeletedByUid([data.uid]);
+          }
+        } catch (err) {
+          console.error(`[ImapClient] Error handling flags event for ${this.config.user}:`, err);
+        }
+      });
+
+      // Periodic full deletion scan (catches Trash/Archive/Sent changes while running)
+      if (this.syncTimer) clearInterval(this.syncTimer);
+      this.syncTimer = setInterval(() => {
+        this.syncDeletedEmails();
+      }, this.SYNC_INTERVAL_MS);
+
       this.client.on("error", (err) => {
         console.error(`[ImapClient] Error for ${this.config.user}:`, err);
         this.handleDisconnect();
@@ -106,6 +137,15 @@ export class ImapClient {
   public async disconnect(): Promise<void> {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
+    }
+    if (this.expungeDebounce) {
+      clearTimeout(this.expungeDebounce);
+      this.expungeDebounce = null;
     }
     if (this.isConnected) {
       await this.client.logout();
@@ -209,6 +249,106 @@ export class ImapClient {
       }
     } catch (error) {
       console.error(`[ImapClient] Error fetching messages for ${this.config.user}:`, error);
+    }
+  }
+
+  /**
+   * Periodic full-folder UID scan: marks emails as deleted when their UID
+   * no longer exists on the IMAP server (deleted/expunged/moved away).
+   */
+  private async syncDeletedEmails(): Promise<void> {
+    if (!this.isConnected) return;
+    console.log(`[ImapClient] Running deletion sync for ${this.config.user}...`);
+    for (const f of this.allFolders) {
+      await this.syncFolderDeletions(f.path);
+    }
+    // Re-select INBOX so the IDLE connection keeps watching the primary mailbox
+    try {
+      await this.client.mailboxOpen("INBOX");
+    } catch (e) {
+      console.error(`[ImapClient] Failed to re-open INBOX after deletion sync:`, e);
+    }
+  }
+
+  private async syncFolderDeletions(mailboxPath: string): Promise<void> {
+    try {
+      if (!this.isConnected) return;
+      await this.client.mailboxOpen(mailboxPath);
+      if (!this.client.mailbox) return;
+
+      // All UIDs currently present in this folder on the server
+      const serverUids = (await this.client.search({ all: true }, { uid: true })) || [];
+      const serverUidSet = new Set(serverUids);
+
+      const supabase = getSupabaseAdmin();
+      const dbMailboxName = this.mailboxNameForPath(mailboxPath);
+
+      // Only emails currently in this folder in the DB
+      const { data: dbEmails, error } = await supabase
+        .from("emails")
+        .select("id, imap_uid")
+        .eq("inbox_id", this.config.inboxId)
+        .eq("mailbox_name", dbMailboxName)
+        .eq("is_deleted", false)
+        .not("imap_uid", "is", null);
+
+      if (error) {
+        console.error(`[ImapClient] Error querying emails for deletion sync in ${mailboxPath}:`, error);
+        return;
+      }
+      if (!dbEmails || dbEmails.length === 0) return;
+
+      const missing = dbEmails.filter((e: any) => !serverUidSet.has(e.imap_uid));
+      if (missing.length === 0) return;
+
+      const missingIds = missing.map((e: any) => e.id);
+      console.log(`[ImapClient] Marking ${missing.length} emails as deleted in ${mailboxPath}:`, missingIds);
+
+      const { error: updateError } = await supabase
+        .from("emails")
+        .update({ is_deleted: true })
+        .in("id", missingIds);
+
+      if (updateError) {
+        console.error(`[ImapClient] Error marking emails as deleted in ${mailboxPath}:`, updateError);
+      }
+    } catch (error) {
+      console.error(`[ImapClient] Error syncing deletions for ${mailboxPath}:`, error);
+    }
+  }
+
+  /** Mark emails as deleted by their IMAP UID (used for \Deleted flag / expunge events). */
+  private async markEmailsDeletedByUid(uids: number[], mailboxName: string = "INBOX"): Promise<void> {
+    if (uids.length === 0 || !this.isConnected) return;
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data: dbEmails, error } = await supabase
+        .from("emails")
+        .select("id")
+        .eq("inbox_id", this.config.inboxId)
+        .eq("mailbox_name", mailboxName)
+        .in("imap_uid", uids)
+        .eq("is_deleted", false);
+
+      if (error) {
+        console.error("[ImapClient] Error querying emails by UID:", error);
+        return;
+      }
+      if (!dbEmails || dbEmails.length === 0) return;
+
+      const ids = dbEmails.map((e: any) => e.id);
+      console.log(`[ImapClient] Marking ${ids.length} emails as deleted by UID:`, ids);
+
+      const { error: updateError } = await supabase
+        .from("emails")
+        .update({ is_deleted: true })
+        .in("id", ids);
+
+      if (updateError) {
+        console.error("[ImapClient] Error marking emails deleted by UID:", updateError);
+      }
+    } catch (error) {
+      console.error("[ImapClient] Error marking emails deleted by UID:", error);
     }
   }
 
