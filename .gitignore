@@ -18,6 +18,9 @@ supabase/.temp/
 .env.local
 .env.*.local
 
+# Deployment scripts containing secrets
+deploy-security.sh
+
 # IDE
 .idea/
 .vscode/

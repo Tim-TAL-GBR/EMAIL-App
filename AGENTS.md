@@ -57,6 +57,13 @@ pnpm db:types     # Regenerate TypeScript types from DB
 - `POST   /api/push/register` – Register push token
 - `DELETE /api/push/unregister` – Unregister push token
 
+## Deployment & Secrets
+- **VPS**: `root@31.97.39.118` (Nick: srv1853050), repo in `/root/teammail/`
+- **Web-Build**: `cd apps/mobile && npx expo export --platform web`, then sync `dist/` to `/var/www/teammail-frontend/`
+- **Server**: built via `tsc` in `server/`, run via PM2 (`pm2 restart teammail`)
+- **CRITICAL**: `ENCRYPTION_KEY` in `server/.env` must NEVER be changed/overwritten. IMAP passwords in the `inboxes.imap_pass` column are AES-GCM-encrypted with it. `deploy-security.sh` now only sets it if missing.
+- IMAP passwords may be plaintext (legacy) or encrypted `iv:authTag:cipher` (when `:` present). Test: `node test-imap.mjs <host> <user> <pass>` from `server/`.
+
 ## TypeScript Checks
 ```bash
 cd server && npx tsc --noEmit
