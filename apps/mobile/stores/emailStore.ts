@@ -250,47 +250,95 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     try {
       const baseColumns = 'id, inbox_id, team_id, message_id, thread_id, subject, from_address, to_addresses, cc_addresses, bcc_addresses, direction, status, is_read, is_starred, is_deleted, is_archived, received_at, created_at, updated_at, imap_uid, mailbox_name, tags, snooze_until, last_activity_at, snippet';
+      const PER_INBOX_LIMIT = 50;
 
-      let query: any = supabase
-        .from('emails')
-        .select(
-          labelId 
-            ? `${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline), email_labels!inner(label_id)`
-            : `${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`
-        )
+      const buildBaseQuery = (ids: string[]) => {
+        let q: any = supabase
+          .from('emails')
+          .select(
+            labelId
+              ? `${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline), email_labels!inner(label_id)`
+              : `${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`
+          )
+          .in('inbox_id', ids);
+
+        if (filterType === 'trash') {
+          q = q.eq('is_deleted', true);
+        } else if (filterType === 'archived') {
+          q = q.eq('is_archived', true);
+        } else if (!mailboxName) {
+          q = q.eq('is_archived', false).eq('is_deleted', false);
+        }
+        if (mailboxName) q = q.eq('mailbox_name', mailboxName);
+        if (labelId) q = q.eq('email_labels.label_id', labelId);
+        return q;
+      };
+
+      let emails: Email[] = [];
+
       if (contextType === 'assigned') {
         const userId = (await supabase.auth.getUser()).data.user?.id;
-        query = supabase
+        const q = supabase
           .from('emails')
           .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
           .eq('email_assignments.assigned_to', userId);
+        const { data, error } = await q
+          .order('last_activity_at', { ascending: false })
+          .order('received_at', { ascending: false })
+          .limit(PER_INBOX_LIMIT);
+        if (error) throw error;
+        emails = (data as unknown as Email[]) ?? [];
+      } else if (contextType === 'global_inbox') {
+        // IMPORTANT (AI Rule): 
+        // Do NOT change this global_inbox dual-query logic back to a single query!
+        // The business rule is: "Global Inbox only shows private emails + shared emails assigned to the user."
+        // We MUST query these separately at the database level. If we fetch 50 random emails from all inboxes 
+        // and filter them on the frontend, the user will see almost 0 emails because most team emails are unassigned.
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        const { data: privateInboxes } = await supabase.from('inboxes').select('id').eq('type', 'private');
+        const privateInboxIds = (privateInboxes || []).map(i => i.id);
+
+        let qPrivate: any = null;
+        if (privateInboxIds.length > 0) {
+          qPrivate = supabase.from('emails')
+            .select(`${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
+            .in('inbox_id', privateInboxIds)
+            .eq('is_archived', false).eq('is_deleted', false);
+          if (mailboxName) qPrivate = qPrivate.eq('mailbox_name', mailboxName);
+          qPrivate = qPrivate.order('last_activity_at', { ascending: false }).order('received_at', { ascending: false }).limit(PER_INBOX_LIMIT);
+        }
+
+        let qAssigned = supabase.from('emails')
+          .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
+          .eq('email_assignments.assigned_to', userId)
+          .eq('is_archived', false).eq('is_deleted', false);
+        if (mailboxName) qAssigned = qAssigned.eq('mailbox_name', mailboxName);
+        qAssigned = qAssigned.order('last_activity_at', { ascending: false }).order('received_at', { ascending: false }).limit(PER_INBOX_LIMIT);
+
+        const promises = [qAssigned];
+        if (qPrivate) promises.push(qPrivate);
+        
+        const results = await Promise.all(promises);
+        const seen = new Set<string>();
+        for (const { data, error } of results) {
+          if (error) throw error;
+          for (const e of (data as unknown as Email[]) ?? []) {
+            if (!seen.has(e.id)) { seen.add(e.id); emails.push(e); }
+          }
+        }
+        emails.sort((a, b) => {
+          const aTime = (a.last_activity_at ?? a.received_at);
+          const bTime = (b.last_activity_at ?? b.received_at);
+          return new Date(bTime).getTime() - new Date(aTime).getTime();
+        });
+        emails = emails.slice(0, PER_INBOX_LIMIT);
       } else {
-        query = query.in('inbox_id', inboxIds);
-      }
-      
-      if (filterType === 'trash') {
-        query = query.eq('is_deleted', true);
-      } else if (filterType === 'archived') {
-        query = query.eq('is_archived', true);
-      } else if (!mailboxName) {
-        query = query.eq('is_archived', false).eq('is_deleted', false);
-      }
-
-      if (mailboxName) {
-        query = query.eq('mailbox_name', mailboxName);
-      }
-      
-      if (labelId) {
-        query = query.eq('email_labels.label_id', labelId);
-      }
-      
-      const limit = 50;
-      const { data, error } = await query.order('last_activity_at', { ascending: false }).limit(limit);
-
-      if (error) {
-        console.error('Fetch emails error:', error);
-        set({ error: error.message, isLoading: false });
-        return;
+        const { data, error } = await buildBaseQuery(inboxIds)
+          .order('last_activity_at', { ascending: false })
+          .order('received_at', { ascending: false })
+          .limit(PER_INBOX_LIMIT);
+        if (error) throw error;
+        emails = (data as unknown as Email[]) ?? [];
       }
 
       if (get()._currentFetchId !== fetchId) {
@@ -298,8 +346,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         return;
       }
 
-      const emails = (data as Email[]) ?? [];
-      set({ emails, threads: computeThreads(emails), isLoading: false, hasMoreEmails: emails.length === limit });
+      // hasMoreEmails = true if any inbox returned a full page
+      set({ emails, threads: computeThreads(emails), isLoading: false, hasMoreEmails: emails.length >= PER_INBOX_LIMIT });
     } catch (err) {
       if (get()._currentFetchId !== fetchId) return;
       set({
@@ -308,6 +356,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       });
     }
   },
+
 
   fetchMoreEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string, mailboxName?: string) => {
     if (get().isLoadingMore || !get().hasMoreEmails) return;
@@ -321,53 +370,90 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     try {
       const baseColumns = 'id, inbox_id, team_id, message_id, thread_id, subject, from_address, to_addresses, cc_addresses, bcc_addresses, direction, status, is_read, is_starred, is_deleted, is_archived, received_at, created_at, updated_at, imap_uid, mailbox_name, tags, snooze_until, last_activity_at, snippet';
+      const PAGE_LIMIT = 50;
 
-      let query: any = supabase
-        .from('emails')
-        .select(
-          labelId 
-            ? `${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline), email_labels!inner(label_id)`
-            : `${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`
-        );
+      const currentEmails = get().emails;
+
+      const buildQuery = (ids: string[]) => {
+        let q: any = supabase
+          .from('emails')
+          .select(
+            labelId
+              ? `${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline), email_labels!inner(label_id)`
+              : `${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`
+          )
+          .in('inbox_id', ids);
+        if (filterType === 'trash') q = q.eq('is_deleted', true);
+        else if (filterType === 'archived') q = q.eq('is_archived', true);
+        else if (!mailboxName) q = q.eq('is_archived', false).eq('is_deleted', false);
+        if (mailboxName) q = q.eq('mailbox_name', mailboxName);
+        if (labelId) q = q.eq('email_labels.label_id', labelId);
+        return q;
+      };
+
+      let newEmails: Email[] = [];
 
       if (contextType === 'assigned') {
         const userId = (await supabase.auth.getUser()).data.user?.id;
-        query = supabase
+        const offset = currentEmails.length;
+        const { data, error } = await supabase
           .from('emails')
           .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
-          .eq('email_assignments.assigned_to', userId);
+          .eq('email_assignments.assigned_to', userId)
+          .order('last_activity_at', { ascending: false })
+          .order('received_at', { ascending: false })
+          .range(offset, offset + PAGE_LIMIT - 1);
+        if (error) throw error;
+        newEmails = (data as unknown as Email[]) ?? [];
+      } else if (contextType === 'global_inbox') {
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        const { data: privateInboxes } = await supabase.from('inboxes').select('id').eq('type', 'private');
+        const privateInboxIds = (privateInboxes || []).map(i => i.id);
+
+        const privateOffset = currentEmails.filter(e => privateInboxIds.includes(e.inbox_id)).length;
+        const assignedOffset = currentEmails.filter(e => !privateInboxIds.includes(e.inbox_id)).length;
+
+        let qPrivate: any = null;
+        if (privateInboxIds.length > 0) {
+          qPrivate = supabase.from('emails')
+            .select(`${baseColumns}, email_assignments(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
+            .in('inbox_id', privateInboxIds)
+            .eq('is_archived', false).eq('is_deleted', false);
+          if (mailboxName) qPrivate = qPrivate.eq('mailbox_name', mailboxName);
+          qPrivate = qPrivate.order('last_activity_at', { ascending: false }).order('received_at', { ascending: false }).range(privateOffset, privateOffset + PAGE_LIMIT - 1);
+        }
+
+        let qAssigned = supabase.from('emails')
+          .select(`${baseColumns}, email_assignments!inner(assigned_to), email_attachments(id, file_name, content_type, size_bytes, storage_path, is_inline)`)
+          .eq('email_assignments.assigned_to', userId)
+          .eq('is_archived', false).eq('is_deleted', false);
+        if (mailboxName) qAssigned = qAssigned.eq('mailbox_name', mailboxName);
+        qAssigned = qAssigned.order('last_activity_at', { ascending: false }).order('received_at', { ascending: false }).range(assignedOffset, assignedOffset + PAGE_LIMIT - 1);
+
+        const promises = [qAssigned];
+        if (qPrivate) promises.push(qPrivate);
+        
+        const results = await Promise.all(promises);
+        const seen = new Set<string>(currentEmails.map(e => e.id));
+        for (const { data, error } of results) {
+          if (error) throw error;
+          for (const e of (data as unknown as Email[]) ?? []) {
+            if (!seen.has(e.id)) { seen.add(e.id); newEmails.push(e); }
+          }
+        }
+        newEmails.sort((a, b) => {
+          const aTime = (a.last_activity_at ?? a.received_at);
+          const bTime = (b.last_activity_at ?? b.received_at);
+          return new Date(bTime).getTime() - new Date(aTime).getTime();
+        });
       } else {
-        query = query.in('inbox_id', inboxIds);
-      }
-      
-      if (filterType === 'trash') {
-        query = query.eq('is_deleted', true);
-      } else if (filterType === 'archived') {
-        query = query.eq('is_archived', true);
-      } else if (!mailboxName) {
-        query = query.eq('is_archived', false).eq('is_deleted', false);
-      }
-
-      if (mailboxName) {
-        query = query.eq('mailbox_name', mailboxName);
-      }
-      
-      if (labelId) {
-        query = query.eq('email_labels.label_id', labelId);
-      }
-      
-      const currentEmails = get().emails;
-      const offset = currentEmails.length;
-      const limit = 50;
-      
-      const { data, error } = await query
-        .order('last_activity_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-
-      if (error) {
-        console.error('Fetch more emails error:', error);
-        set({ error: error.message, isLoadingMore: false });
-        return;
+        const offset = currentEmails.length;
+        const { data, error } = await buildQuery(inboxIds)
+          .order('last_activity_at', { ascending: false })
+          .order('received_at', { ascending: false })
+          .range(offset, offset + PAGE_LIMIT - 1);
+        if (error) throw error;
+        newEmails = (data as unknown as Email[]) ?? [];
       }
 
       if (get()._currentFetchId !== fetchId) {
@@ -375,19 +461,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         return;
       }
 
-      const newEmails = (data as Email[]) ?? [];
-      
-      // Filter out any potential duplicates that might have been added via realtime while fetching
+      // Filter out duplicates that may have appeared via realtime
       const existingIds = new Set(currentEmails.map(e => e.id));
-      const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
-      
-      const allEmails = [...currentEmails, ...uniqueNewEmails].slice(0, MAX_EMAILS);
-      
-      set({ 
-        emails: allEmails, 
-        threads: computeThreads(allEmails), 
-        isLoadingMore: false, 
-        hasMoreEmails: newEmails.length === limit && allEmails.length < MAX_EMAILS
+      const uniqueNew = newEmails.filter(e => !existingIds.has(e.id));
+      const allEmails = [...currentEmails, ...uniqueNew].slice(0, MAX_EMAILS);
+
+      set({
+        emails: allEmails,
+        threads: computeThreads(allEmails),
+        isLoadingMore: false,
+        hasMoreEmails: uniqueNew.length > 0 && allEmails.length < MAX_EMAILS,
       });
     } catch (err) {
       if (get()._currentFetchId !== fetchId) return;
@@ -397,6 +480,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       });
     }
   },
+
 
   setActiveEmail: (id) => {
     set({ activeEmailId: id });
