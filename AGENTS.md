@@ -79,3 +79,9 @@ cd packages/shared && npx tsc --noEmit
 ## iOS App Setup
 1. `cd apps/mobile && npx expo run:ios`
 2. For push notifications: configure EAS credentials
+
+## CRITICAL: DATABASE MANAGEMENT
+**NEVER run `supabase db reset` or `pm2 restart` (or stop/start supabase) on the VPS production environment (`mail.tim-regener.com`, IP: 31.97.39.118) without explicit user permission.**
+The VPS contains production data! Any database reset there will destroy all user data, configurations, and emails.
+If you need to recover disk space, DO NOT delete Supabase volumes, do not reset the DB. Find specific orphaned files.
+Always take a database backup using `pg_dump` on the VPS before doing any maintenance!

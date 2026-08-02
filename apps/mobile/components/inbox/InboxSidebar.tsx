@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout, Shadows, API_URL } from '../../lib/constants';
 import { useInboxes } from '../../hooks/useInboxes';
@@ -26,7 +26,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
   const { user, signOut } = useAuthStore();
   const { activeContextType, activeContextId, activeFilter, activeMailbox, setContext } = useNavigationStore();
   
-  const { labels, fetchLabels, createLabel } = useLabelStore();
+  const { labels, fetchLabels, createLabel, deleteLabel } = useLabelStore();
   const { pinnedThreads, fetchPinnedThreads } = useEmailStore();
   const { teams: allTeams, orgs, getSubTeams } = useTeams();
   const [isCreateLabelModalOpen, setIsCreateLabelModalOpen] = useState(false);
@@ -157,6 +157,13 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
             <Text style={styles.countText}>{openEmailCount > 0 ? openEmailCount : ''}</Text>
           </TouchableOpacity>
 
+          {activeContextType === 'global_inbox' && (
+            <View style={styles.filtersContainer}>
+              {renderFilterItem('global_inbox', 'global', 'done', 'Erledigt')}
+              {renderFilterItem('global_inbox', 'global', 'trash', 'Papierkorb')}
+            </View>
+          )}
+
           <TouchableOpacity 
             style={[styles.mainNavItem, pathname.includes('/tasks') && styles.filterItemActive]}
             onPress={() => router.push('/(app)/tasks')}
@@ -212,6 +219,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
                     {renderFilterItem('private_inbox', inbox.id, 'needs_attention', 'Eingang')}
                     {renderFilterItem('private_inbox', inbox.id, 'drafts', 'Entwürfe')}
                     {renderFilterItem('private_inbox', inbox.id, 'sent', 'Gesendet')}
+                    {renderFilterItem('private_inbox', inbox.id, 'done', 'Erledigt')}
                     {renderFilterItem('private_inbox', inbox.id, 'archived', 'Archiviert')}
                     {renderFilterItem('private_inbox', inbox.id, 'trash', 'Papierkorb')}
                     {getCustomFolders(inbox.id).length > 0 && (
@@ -270,6 +278,28 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
                 <Text style={[styles.accountText, activeContextType === 'label' && activeContextId === label.id && styles.mainNavTextActive]} numberOfLines={1}>
                   {label.name}
                 </Text>
+                <TouchableOpacity
+                  style={{ padding: 4 }}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    if (Platform.OS === 'web') {
+                      if (window.confirm(`Möchtest du den Ordner "${label.name}" wirklich löschen?`)) {
+                        deleteLabel(label.id);
+                      }
+                    } else {
+                      Alert.alert(
+                        'Ordner löschen',
+                        `Möchtest du den Ordner "${label.name}" wirklich löschen?`,
+                        [
+                          { text: 'Abbrechen', style: 'cancel' },
+                          { text: 'Löschen', style: 'destructive', onPress: () => deleteLabel(label.id) },
+                        ]
+                      );
+                    }
+                  }}
+                >
+                  <Feather name="trash-2" size={12} color={Colors.textTertiary} />
+                </TouchableOpacity>
               </TouchableOpacity>
             ))}
           </View>
@@ -361,7 +391,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
                   <View style={styles.filtersContainer}>
                     {renderFilterItem('org', org.id, 'assigned_to_me', 'Zugewiesen an mich')}
                     {renderFilterItem('org', org.id, 'assigned_to_others', 'Zugewiesen an andere')}
-                    {renderFilterItem('org', org.id, 'done', 'Abgeschlossen')}
+                    {renderFilterItem('org', org.id, 'done', 'Erledigt')}
                     {renderFilterItem('org', org.id, 'sent', 'Gesendet')}
                     {renderFilterItem('org', org.id, 'all', 'Alle')}
                   </View>
@@ -388,7 +418,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
                       <View style={styles.filtersContainer}>
                         {renderFilterItem('team', team.id, 'assigned_to_me', 'Zugewiesen an mich')}
                         {renderFilterItem('team', team.id, 'assigned_to_others', 'Zugewiesen an andere')}
-                        {renderFilterItem('team', team.id, 'done', 'Abgeschlossen')}
+                        {renderFilterItem('team', team.id, 'done', 'Erledigt')}
                         {renderFilterItem('team', team.id, 'sent', 'Gesendet')}
                         {renderFilterItem('team', team.id, 'all', 'Alle')}
                       </View>

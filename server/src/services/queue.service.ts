@@ -85,6 +85,8 @@ export function startEmailWorker() {
     let isDeleted = false;
     let mailboxName = data.mailboxName || "INBOX";
 
+    const hasDeletedFlag = data.imapFlags?.some(f => f.toLowerCase() === '\\deleted') || false;
+
     // Determine status, direction, and flags based on the folder
     const mailboxLower = mailboxName.toLowerCase();
     
@@ -94,12 +96,15 @@ export function startEmailWorker() {
     } else if (mailboxLower.includes("archive") || mailboxLower.includes("archiv") || mailboxLower.includes("all mail")) {
       mappedStatus = "done";
       isArchived = true;
-    } else if (mailboxLower.includes("trash") || mailboxLower.includes("gelöscht") || mailboxLower.includes("deleted")) {
+    } else if (hasDeletedFlag || mailboxLower.includes("trash") || mailboxLower.includes("gelöscht") || mailboxLower.includes("deleted") || mailboxLower.includes("papierkorb")) {
       mappedStatus = "done";
       isDeleted = true;
     }
 
     // 2. Insert into Supabase
+    const { extractSnippet } = require("../utils/text");
+    const snippet = extractSnippet(data.bodyHtml, data.bodyText);
+    
     const { data: insertedEmail, error } = await supabase
       .from("emails")
       .insert({
@@ -116,6 +121,7 @@ export function startEmailWorker() {
         last_activity_at: data.date,
         body_text: data.bodyText,
         body_html: data.bodyHtml,
+        snippet: snippet,
         status: mappedStatus,
         is_read: data.isRead,
         direction: mappedDirection,
@@ -137,27 +143,48 @@ export function startEmailWorker() {
         // unseen messages in INBOX) can never override user decisions.
         const { data: existing } = await supabase
           .from("emails")
-          .select("status, is_read")
+          .select("status, is_read, is_deleted, is_archived, mailbox_name")
           .eq("message_id", data.messageId)
           .eq("inbox_id", data.inboxId)
           .maybeSingle();
 
+        // If this is a tombstone (\Deleted flag or in Trash) but the email is ALIVE in a DIFFERENT folder,
+        // it means the email was moved (e.g. INBOX -> Archive) and this is just the old folder's tombstone.
+        // We MUST ignore it to avoid marking the alive email as deleted.
+        if (isDeleted && existing && !existing.is_deleted && existing.mailbox_name !== mailboxName) {
+          console.log(`[Queue] Ignoring tombstone from ${mailboxName} for email ${data.messageId} which is now alive in ${existing.mailbox_name}`);
+          return { status: 'duplicate', emailId: null };
+        }
+
         // Only move the status to "done" when the email now lives in a
-        // terminal folder (archive/trash/sent). Re-syncing from INBOX maps to
+        // terminal folder (archive/trash/sent) or has \Deleted flag. Re-syncing from INBOX maps to
         // "open" and must NOT resurrect a conversation the user already closed.
         const status = mappedStatus === "done" ? "done" : existing?.status ?? mappedStatus;
         // Never downgrade back to unread: server read-state only ever wins in
         // the direction "read", otherwise the app's read flag is preserved.
         const isRead = data.isRead || existing?.is_read || false;
 
+        // If we are syncing the SAME folder, we OR the existing flags to prevent
+        // delayed IMAP syncs (which don't have the \Deleted flag yet) from resurrecting 
+        // emails that were just deleted in TeamMail.
+        // If we are syncing a DIFFERENT folder, we fully trust the new folder's state
+        // because the email was moved (e.g. Trash -> INBOX, or INBOX -> Archive).
+        let finalIsDeleted = isDeleted;
+        let finalIsArchived = isArchived;
+        
+        if (existing && existing.mailbox_name === mailboxName) {
+            finalIsDeleted = isDeleted || existing.is_deleted || false;
+            finalIsArchived = isArchived || existing.is_archived || false;
+        }
+
         const { error: updateError } = await supabase
           .from("emails")
           .update({
             mailbox_name: mailboxName,
             imap_uid: data.imapUid,
-            is_deleted: isDeleted,
-            is_archived: isArchived,
-            status,
+            is_deleted: finalIsDeleted,
+            is_archived: finalIsArchived,
+            status: finalIsDeleted || finalIsArchived ? 'done' : status,
             direction: mappedDirection,
             is_read: isRead,
           })
