@@ -565,8 +565,12 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
       const ccAddresses = parseEmailList(cc);
       const bccAddresses = parseEmailList(bcc);
 
+      const currentEmail = extractEmail(senderAddress);
+      const selectedAliasObj = senderAliases.find(a => a.email_address === currentEmail);
+      const targetInboxId = selectedAliasObj ? selectedAliasObj.inboxId : activeInboxId;
+
       const payload = {
-        inboxId: activeInboxId,
+        inboxId: targetInboxId,
         to: toAddresses,
         cc: ccAddresses,
         bcc: bccAddresses,

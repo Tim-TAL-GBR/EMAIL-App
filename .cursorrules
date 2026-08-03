@@ -1,0 +1,13 @@
+# SMTP & Email Composer Rules
+
+## DO NOT BREAK: Sender Address & Inbox Matching
+
+When modifying `EmailComposer.tsx` or the `/api/mail/send` endpoint, you MUST adhere to the following strict rule regarding the SMTP envelope:
+
+1. **SMTP Envelope Validation**: The IONOS SMTP server (and most strict SMTP servers) REQUIRES the `fromAddress` (the "MAIL FROM" command) to belong to the exact domain and user authenticated via SMTP.
+2. **Inbox Selection**: In `EmailComposer.tsx`, the `senderAliases` dropdown allows the user to select an alias from *any* of their inboxes. 
+3. **Payload Construction**: When constructing the payload for `POST /api/mail/send`, the `inboxId` sent to the backend MUST correspond to the `inboxId` of the **selected sender alias**, NOT just the `activeInboxId` of the current view.
+4. **Consequences**: If the frontend sends the `activeInboxId` but a `fromAddress` belonging to a different inbox, the backend will attempt to send an email using Inbox A's SMTP credentials but Inbox B's email address. This will result in a hard failure: `550 Sender address is not allowed`.
+5. **Signatures**: Because the signatures depend on the active inbox, ensuring the correct `inboxId` is passed ensures the user doesn't experience bugs where their emails fail to send and their signatures appear missing or incorrect.
+
+**DO NOT** change the logic in `EmailComposer.tsx` (around line 569) that explicitly looks up `targetInboxId` based on the selected `senderAddress` from the `senderAliases` array.

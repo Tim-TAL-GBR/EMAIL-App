@@ -208,7 +208,8 @@ export default function IntegrationsSettingsScreen() {
                   </View>
                 </View>
                 <View
-                  onClick={() => {
+                  // @ts-ignore - web only pointer event
+                  onPointerDown={() => {
                     if (disconnecting === item.shopDomain) return;
                     const ok = window.confirm(`Möchtest du ${item.shopDomain} trennen?`);
                     if (ok) handleDisconnect(item.shopDomain);
