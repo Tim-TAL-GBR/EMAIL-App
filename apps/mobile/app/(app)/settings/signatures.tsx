@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
 import { useSignatures, Signature } from '../../../hooks/useSignatures';
 import { useInboxes } from '../../../hooks/useInboxes';
@@ -9,6 +9,8 @@ import { useAuthStore } from '../../../stores/authStore';
 import { UserEmailAssignments } from '../../../components/settings/UserEmailAssignments';
 
 export default function SignaturesSettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const { user } = useAuthStore();
   const { signatures, refetch: refetchSignatures } = useSignatures();
   const { inboxes, refetch: refetchInboxes } = useInboxes();
@@ -213,7 +215,7 @@ export default function SignaturesSettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isMobile && { flexDirection: 'column' }]}>
       {/* Modal Overlay */}
       {isModalVisible && (
         <View style={styles.modalOverlay}>

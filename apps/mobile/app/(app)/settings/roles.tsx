@@ -1,6 +1,6 @@
 import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Switch, useWindowDimensions } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 
@@ -40,6 +40,8 @@ async function apiRequest(path: string, method = 'GET', body?: object) {
 }
 
 export default function RolesSettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [roles, setRoles] = useState<CustomRole[]>([]);
@@ -139,7 +141,7 @@ export default function RolesSettingsScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isMobile && { flexDirection: 'column' }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Benutzerdefinierte Rollen</Text>
       </View>

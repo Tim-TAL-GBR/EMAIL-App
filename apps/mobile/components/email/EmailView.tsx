@@ -1,6 +1,6 @@
 import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, LayoutRectangle, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, LayoutRectangle, Alert, Platform, Modal } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../lib/constants';
 import { EmailDetail } from '../email/EmailDetail';
@@ -331,14 +331,36 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       />
       </View>
       
-      {Platform.OS === 'web' && showShopifyPanel && selectedThread?.latestEmail && (
-        <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
-          <ShopifyCustomerCard 
-            email={selectedThread.latestEmail.from_address} 
-            teamId={selectedThread.latestEmail.team_id}
-            detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
-          />
-        </View>
+      {Platform.OS === 'web' ? (
+        showShopifyPanel && selectedThread?.latestEmail && (
+          <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
+            <ShopifyCustomerCard 
+              email={selectedThread.latestEmail.from_address} 
+              teamId={selectedThread.latestEmail.team_id}
+              detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
+            />
+          </View>
+        )
+      ) : (
+        <Modal visible={showShopifyPanel} transparent animationType="slide" onRequestClose={() => setShowShopifyPanel(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <View style={{ backgroundColor: '#FAFAFA', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '85%', padding: Spacing.lg, paddingBottom: 40 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md }}>
+                <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold' }}>Shopify Details</Text>
+                <TouchableOpacity onPress={() => setShowShopifyPanel(false)} style={{ padding: 4 }}>
+                  <Feather name="x" size={24} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              {selectedThread?.latestEmail && (
+                <ShopifyCustomerCard 
+                  email={selectedThread.latestEmail.from_address} 
+                  teamId={selectedThread.latestEmail.team_id}
+                  detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
       )}
       </View>
 

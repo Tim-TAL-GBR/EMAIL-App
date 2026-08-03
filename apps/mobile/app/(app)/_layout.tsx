@@ -50,7 +50,7 @@ export default function AppLayout() {
           headerShadowVisible: false,
           contentStyle: { backgroundColor: Colors.background },
         }}>
-          <Stack.Screen name="index" options={{ title: 'TeamMail', headerLeft: backBtn }} />
+          <Stack.Screen name="index" options={{ title: 'TeamMail' }} />
           <Stack.Screen name="inbox/list" options={{ title: 'Inbox', headerLeft: backBtn }} />
           <Stack.Screen name="email/[emailId]" options={{ 
             title: 'E-Mail',

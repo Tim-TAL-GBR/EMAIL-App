@@ -2,7 +2,7 @@ import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Alert, Modal
+  TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions
 } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
@@ -50,6 +50,8 @@ function getAvatarColor(str: string) {
 }
 
 export default function TeamsSettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -186,7 +188,7 @@ export default function TeamsSettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isMobile && { flexDirection: 'column' }]}>
       {/* Create Team Modal */}
       <Modal visible={showCreateModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -317,7 +319,7 @@ export default function TeamsSettingsScreen() {
       </Modal>
 
       {/* Sidebar */}
-      <View style={styles.sidebar}>
+      <View style={[styles.sidebar, isMobile && { width: '100%', height: 250, borderRightWidth: 0, borderBottomWidth: 1 }]}>
         <View style={styles.sidebarContent}>
           <ScrollView>
             {loading ? (

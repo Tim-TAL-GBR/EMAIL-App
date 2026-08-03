@@ -40,7 +40,10 @@
       "expo-router",
       "expo-font",
       "expo-notifications",
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-splash-screen",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

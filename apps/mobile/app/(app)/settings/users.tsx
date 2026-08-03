@@ -2,7 +2,7 @@ import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Alert, Modal
+  TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions
 } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
@@ -64,6 +64,8 @@ function getInitials(name: string | null, email: string) {
 }
 
 export default function UsersSettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -228,7 +230,7 @@ export default function UsersSettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isMobile && { flexDirection: 'column' }]}>
       {/* Invite Modal */}
       <Modal visible={showInviteModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -387,7 +389,7 @@ export default function UsersSettingsScreen() {
       </Modal>
 
       {/* Sidebar */}
-      <View style={styles.sidebar}>
+      <View style={[styles.sidebar, isMobile && { width: '100%', height: 250, borderRightWidth: 0, borderBottomWidth: 1 }]}>
         <View style={styles.sidebarContent}>
           <View style={styles.searchWrapper}>
             <Text style={styles.searchIcon}>🔍</Text>

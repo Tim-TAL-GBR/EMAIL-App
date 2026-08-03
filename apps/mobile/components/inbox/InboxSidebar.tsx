@@ -483,7 +483,7 @@ export function InboxSidebar({ isDesktop = false }: InboxSidebarProps) {
 
 const styles = StyleSheet.create({
   container: {
-    width: Layout.sidebarWidth,
+    width: '100%',
     height: '100%',
     backgroundColor: '#F9FAFB', // Light gray background matching screenshot
     borderRightWidth: 1,

@@ -20,6 +20,12 @@ export function useSignatures() {
   const fetchSignatures = async () => {
     setIsLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setSignatures([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('signatures')
         .select('*')

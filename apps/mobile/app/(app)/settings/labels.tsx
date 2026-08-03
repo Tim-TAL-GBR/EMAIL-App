@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
 import { useInboxes } from '../../../hooks/useInboxes';
 
 export default function LabelsSettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const { inboxes } = useInboxes();
   const teamName = React.useMemo(() => {
     const teams = new Map<string, string>();
@@ -147,9 +149,9 @@ export default function LabelsSettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isMobile && { flexDirection: 'column' }]}>
       {/* Sidebar */}
-      <View style={styles.sidebar}>
+      <View style={[styles.sidebar, isMobile && { width: '100%', borderRightWidth: 0 }]}>
         <ScrollView style={styles.sidebarContent}>
           <View style={styles.searchWrapper}>
             <Text style={styles.searchIcon}>🔍</Text>

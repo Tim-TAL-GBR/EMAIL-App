@@ -1,6 +1,6 @@
 import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 
@@ -42,6 +42,8 @@ function getAvatarColor(str: string) {
 }
 
 export default function OrganizationsSettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [teams, setTeams] = useState<Team[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -158,7 +160,7 @@ export default function OrganizationsSettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isMobile && { flexDirection: 'column' }]}>
       {/* Create Org Modal */}
       <Modal visible={showCreateOrgModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -237,7 +239,7 @@ export default function OrganizationsSettingsScreen() {
       </Modal>
 
       {/* Sidebar */}
-      <View style={styles.sidebar}>
+      <View style={[styles.sidebar, isMobile && { width: '100%', height: 250, borderRightWidth: 0, borderBottomWidth: 1 }]}>
         <View style={styles.sidebarContent}>
           <ScrollView>
             {isLoading ? (

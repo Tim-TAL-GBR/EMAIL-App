@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Image, ActivityIndicator, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, Image, ActivityIndicator, Platform, Alert, SafeAreaView } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, FontFamily, FontSize } from '../../lib/constants';
 import { supabase } from '../../lib/supabase';
@@ -91,16 +92,20 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
   return (
     <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.iconButton}>
-            <Feather name="x" size={24} color="#FFF" />
-          </TouchableOpacity>
-          <View style={styles.titleContainer}>
-            <Text style={styles.title} numberOfLines={1}>{attachment.file_name}</Text>
-            <Text style={styles.subtitle}>{(attachment.size_bytes / 1024 / 1024).toFixed(2)} MB</Text>
+        <SafeAreaView style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onClose} style={styles.iconButton}>
+              <Feather name="x" size={24} color="#FFF" />
+            </TouchableOpacity>
+            <View style={styles.titleContainer}>
+              <Text style={styles.title} numberOfLines={1}>{attachment.file_name}</Text>
+              <Text style={styles.subtitle}>{(attachment.size_bytes / 1024 / 1024).toFixed(2)} MB</Text>
+            </View>
+            <TouchableOpacity onPress={handleDownload} style={styles.iconButton}>
+              <Feather name="download" size={24} color="#FFF" />
+            </TouchableOpacity>
           </View>
-
-        </View>
+        </SafeAreaView>
 
         <View style={styles.content}>
           {loading && <ActivityIndicator size="large" color="#FFF" />}
@@ -123,14 +128,19 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
             </View>
           )}
 
-          {!loading && signedUrl && !isImage && (
+          {!loading && signedUrl && isPdf && !isWeb && (
+            <View style={styles.pdfContainer}>
+              <WebView 
+                source={{ uri: signedUrl }} 
+                style={{ flex: 1, backgroundColor: 'transparent' }} 
+              />
+            </View>
+          )}
+
+          {!loading && signedUrl && !isImage && !isPdf && (
             <View style={styles.fallbackContainer}>
-              {!(isPdf && isWeb) && (
-                <>
-                  <Feather name="file" size={64} color="#CCC" />
-                  <Text style={styles.fallbackText}>Keine Vorschau verfügbar</Text>
-                </>
-              )}
+              <Feather name="file" size={64} color="#CCC" />
+              <Text style={styles.fallbackText}>Keine Vorschau verfügbar</Text>
               <TouchableOpacity style={styles.downloadButton} onPress={handleDownload}>
                 <Text style={styles.downloadButtonText}>Datei öffnen / herunterladen</Text>
               </TouchableOpacity>
@@ -151,7 +161,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: Spacing.md,
-    paddingTop: Spacing.xl, // For notch/status bar in mobile
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   iconButton: {
