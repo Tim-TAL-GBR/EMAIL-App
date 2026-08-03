@@ -188,12 +188,13 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
     const isAssignedToAnyone = assignments.length > 0;
 
     if (activeContextType === 'global_inbox') {
-      const inbox = inboxes.find(i => i.id === t.latestEmail.inbox_id);
-      const isPrivate = inbox?.type === 'private';
-      
-      if (!isPrivate && !isAssignedToMe) {
-        return false;
-      }
+      // The user requested to see ALL emails in the global inbox again,
+      // not just private ones or those assigned to them.
+      // const inbox = inboxes.find(i => i.id === t.latestEmail.inbox_id);
+      // const isPrivate = inbox?.type === 'private';
+      // if (!isPrivate && !isAssignedToMe) {
+      //   return false;
+      // }
     }
 
     // For 'org' context: show all threads (no assignment filter)

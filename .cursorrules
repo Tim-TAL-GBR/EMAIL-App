@@ -11,3 +11,12 @@ When modifying `EmailComposer.tsx` or the `/api/mail/send` endpoint, you MUST ad
 5. **Signatures**: Because the signatures depend on the active inbox, ensuring the correct `inboxId` is passed ensures the user doesn't experience bugs where their emails fail to send and their signatures appear missing or incorrect.
 
 **DO NOT** change the logic in `EmailComposer.tsx` (around line 569) that explicitly looks up `targetInboxId` based on the selected `senderAddress` from the `senderAliases` array.
+
+# UI Rules
+
+## DO NOT BREAK: Unified Inbox Visibility
+
+When modifying `InboxList.tsx` or any email list logic:
+1. **Global Inbox Definition**: The "global_inbox" (Unified Inbox) MUST display **ALL** emails that the user has access to across **ALL** inboxes (private and team inboxes).
+2. **No Unassigned Filtering**: **DO NOT** filter out team emails just because they are "unassigned" to the user. The user specifically requires full visibility of all team emails in their global inbox.
+3. **Consequences**: Adding filters like `if (!isPrivate && !isAssignedToMe) return false;` makes 90% of the emails disappear from the main inbox view, which causes severe usability issues.
