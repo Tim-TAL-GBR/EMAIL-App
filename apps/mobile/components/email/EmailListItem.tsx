@@ -5,6 +5,7 @@ import { Colors, Spacing, FontFamily, FontSize, FontWeight, BorderRadius } from 
 import { StatusBadge } from '../ui/StatusBadge';
 import { Feather } from '@expo/vector-icons';
 import { Avatar } from '../ui/Avatar';
+import { useInboxStore } from '../../stores/inboxStore';
 
 import { Thread } from '../../stores/emailStore';
 
@@ -23,12 +24,22 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
   const dateObj = thread.latestEmail.received_at ? parseISO(thread.latestEmail.received_at) : new Date();
   const formattedTime = format(dateObj, 'HH:mm');
 
-  // Get sender name/address
-  let fromLabel = thread.latestEmail.from_address;
+  // Find the latest inbound email to use for display (sender name, avatar, snippet)
+  // If we started the thread and it only has outbound emails, fallback to the latest email
+  let displayEmail = thread.latestEmail;
+  for (let i = thread.emails.length - 1; i >= 0; i--) {
+    if (thread.emails[i].direction !== 'outbound') {
+      displayEmail = thread.emails[i];
+      break;
+    }
+  }
+
+  // Get sender name/address from the display email
+  let fromLabel = displayEmail.from_address;
   if (thread.participants.length > 1) {
-    const others = thread.participants.filter(p => p !== thread.latestEmail.from_address);
+    const others = thread.participants.filter(p => p !== displayEmail.from_address);
     if (others.length > 0) {
-      fromLabel = `${thread.latestEmail.from_address}, ${others[0]}${others.length > 1 ? '...' : ''}`;
+      fromLabel = `${displayEmail.from_address}, ${others[0]}${others.length > 1 ? '...' : ''}`;
     }
   }
 
@@ -40,6 +51,16 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
   
   // Extract assignments to show as small avatars
   const assignments = thread.latestEmail.email_assignments || [];
+
+  // Use inbox avatar for outbound emails (if the display email is outbound)
+  const inboxes = useInboxStore(s => s.inboxes);
+  let avatarUri = null;
+  if (displayEmail.direction === 'outbound') {
+    const inbox = inboxes.find(i => i.id === displayEmail.inbox_id);
+    if (inbox?.avatar_url) {
+      avatarUri = inbox.avatar_url;
+    }
+  }
 
   return (
     <TouchableOpacity
@@ -80,11 +101,11 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
                 <Feather name="check" size={16} color="#FFF" />
               </View>
             ) : (
-              <Avatar name={displayName} size={28} />
+              <Avatar name={displayName} size={28} uri={avatarUri} />
             )}
           </TouchableOpacity>
         ) : (
-          <Avatar name={displayName} size={28} />
+          <Avatar name={displayName} size={28} uri={avatarUri} />
         )}
       </View>
       
@@ -158,7 +179,7 @@ export const EmailListItem = React.memo(function EmailListItem({ thread, onPress
         </View>
         
         <Text style={[styles.previewText, isSelected && styles.textSelectedSecondary]} numberOfLines={1}>
-          {thread.latestEmail.snippet || ''}
+          {displayEmail.snippet || ''}
         </Text>
       </View>
     </TouchableOpacity>

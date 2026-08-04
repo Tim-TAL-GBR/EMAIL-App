@@ -9,9 +9,6 @@ CREATE TABLE IF NOT EXISTS org_ai_settings (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_org_ai_settings_org_id ON org_ai_settings(org_id);
 
--- Grant service_role full access (used by getSupabaseAdmin)
-GRANT ALL PRIVILEGES ON TABLE org_ai_settings TO service_role;
-GRANT ALL PRIVILEGES ON TABLE org_ai_context TO service_role;
 
 COMMENT ON TABLE org_ai_settings IS 'Organization-level OpenAI settings';
 COMMENT ON COLUMN org_ai_settings.openai_api_key IS 'Encrypted or plaintext OpenAI API key for the org';
@@ -118,3 +115,7 @@ ALTER TABLE org_ai_settings REPLICA IDENTITY FULL;
 ALTER TABLE org_ai_context REPLICA IDENTITY FULL;
 ALTER PUBLICATION supabase_realtime ADD TABLE org_ai_settings;
 ALTER PUBLICATION supabase_realtime ADD TABLE org_ai_context;
+
+-- Grant service_role full access (used by getSupabaseAdmin)
+GRANT ALL PRIVILEGES ON TABLE org_ai_settings TO service_role;
+GRANT ALL PRIVILEGES ON TABLE org_ai_context TO service_role;

@@ -65,6 +65,10 @@ app.use(cors({
   credentials: true,
 }));
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+// Webhooks must be mounted BEFORE express.json() to preserve raw body
+import { stripeWebhookRouter } from "./routes/stripe.webhook.js";
+app.use("/api/webhooks/stripe", stripeWebhookRouter);
+
 app.use(express.json({ limit: '2mb' }));
 
 app.set('trust proxy', 1);
@@ -96,6 +100,8 @@ app.use("/api/user-email-settings", userEmailSettingsRouter);
 app.use("/api/tasks", taskRouter);
 app.use("/api/task-notifications", taskNotificationRouter);
 app.use("/api/user-preferences", userPreferencesRouter);
+import { billingRouter } from "./routes/billing.routes.js";
+app.use("/api/billing", billingRouter);
 app.use("/api/admin", adminRouter);
 
 // Global error handler — no stack traces in production
@@ -122,11 +128,9 @@ let dailyResetInterval: NodeJS.Timeout | undefined;
 server.listen(PORT, async () => {
   console.log(`[server] TeamMail realtime server listening on port ${PORT}`);
   
-  // Start Email Worker (BullMQ)
-  startEmailWorker();
-
-  // Start IMAP Sync
-  await mailManager.initialize();
+  // Run workers and initializers
+  mailManager.initialize().catch(console.error);
+  await startEmailWorker();
 
   // Task due date notifications — check every 15 minutes
   taskNotificationInterval = setInterval(async () => {

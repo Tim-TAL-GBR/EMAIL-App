@@ -20,12 +20,16 @@ export function useEmails(inboxIds: string[], labelId?: string, activeContextTyp
   const inboxIdsStr = JSON.stringify(inboxIds);
 
   useEffect(() => {
-    if (activeContextType !== 'assigned' && (!inboxIds || inboxIds.length === 0)) {
+    if (activeContextType !== 'assigned' && activeContextType !== 'global_inbox' && (!inboxIds || inboxIds.length === 0)) {
       store.fetchEmails([]);
       return;
     }
 
     store.fetchEmails(inboxIds, labelId, activeContextType, activeFilter, activeMailbox || undefined);
+
+    if (!inboxIds || inboxIds.length === 0) {
+      return;
+    }
 
     const channelName = `emails-inboxes-${inboxIds[0]}-${inboxIds.length}-${labelId || 'no-label'}`;
     const filterString = `inbox_id=in.(${inboxIds.join(',')})`;

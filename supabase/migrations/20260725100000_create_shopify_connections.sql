@@ -1,6 +1,6 @@
 -- Create shopify_connections table
 CREATE TABLE IF NOT EXISTS public.shopify_connections (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     team_id UUID NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
     shop_domain TEXT NOT NULL,
     access_token TEXT NOT NULL,

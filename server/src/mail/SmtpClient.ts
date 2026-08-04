@@ -18,6 +18,7 @@ interface SendEmailParams {
   references?: string | string[];
   attachments?: any[];
   fromAddress?: string;
+  status?: "open" | "done" | "in_progress";
 }
 
 export class SmtpClient {
@@ -36,6 +37,17 @@ export class SmtpClient {
 
     if (inboxError || !inbox) {
       throw new Error(`Inbox not found or error fetching credentials: ${inboxError?.message}`);
+    }
+
+    // 1.5 Check subscription status
+    const { data: subscription } = await supabase
+      .from("subscriptions")
+      .select("status")
+      .eq("org_id", params.teamId)
+      .single();
+
+    if (subscription && subscription.status !== 'active' && subscription.status !== 'trialing') {
+      throw new Error("Cannot send email: Subscription is inactive or expired.");
     }
 
     if (!inbox.smtp_host || !inbox.smtp_user || !inbox.smtp_pass) {
@@ -150,7 +162,7 @@ export class SmtpClient {
       body_text: params.bodyText,
       body_html: params.bodyHtml,
       direction: "outbound",
-      status: "done",
+      status: params.status || "done",
       is_read: true,
       is_starred: false,
       is_deleted: false,

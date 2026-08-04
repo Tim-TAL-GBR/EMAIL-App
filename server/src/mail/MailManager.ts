@@ -19,8 +19,12 @@ export class MailManager {
       .select("id, team_id, imap_host, imap_port, imap_user, imap_pass, sync_since, imap_secure")
       .not("imap_host", "is", null);
 
-    if (error) {
-      console.error("[MailManager] Failed to fetch inboxes:", error);
+    const { data: subscriptions, error: subError } = await supabase
+      .from("subscriptions")
+      .select("org_id, status");
+
+    if (error || subError) {
+      console.error("[MailManager] Failed to fetch inboxes or subscriptions:", error || subError);
       return;
     }
 
@@ -30,17 +34,21 @@ export class MailManager {
     }
 
     for (const inbox of inboxes) {
-      if (inbox.imap_host && inbox.imap_user && inbox.imap_pass) {
-        this.addClient({
-          inboxId: inbox.id,
-          teamId: inbox.team_id,
-          host: inbox.imap_host,
-          port: inbox.imap_port || 993,
-          user: inbox.imap_user,
-          pass: decrypt(inbox.imap_pass),
-          sync_since: inbox.sync_since,
-          secure: inbox.imap_secure !== false,
-        });
+      // Check if subscription is active or trialing
+      const sub = subscriptions?.find((s: any) => s.org_id === inbox.team_id);
+      if (sub && (sub.status === 'active' || sub.status === 'trialing')) {
+        if (inbox.imap_host && inbox.imap_user && inbox.imap_pass) {
+          this.addClient({
+            inboxId: inbox.id,
+            teamId: inbox.team_id,
+            host: inbox.imap_host,
+            port: inbox.imap_port || 993,
+            user: inbox.imap_user,
+            pass: decrypt(inbox.imap_pass),
+            sync_since: inbox.sync_since,
+            secure: inbox.imap_secure !== false,
+          });
+        }
       }
     }
   }
@@ -114,6 +122,40 @@ export class MailManager {
       await client.disconnect();
     }
     this.clients.clear();
+  }
+
+  /**
+   * Stops all IMAP clients for a specific organization.
+   * Useful when a subscription expires.
+   */
+  public async stopClientsForOrg(orgId: string): Promise<void> {
+    console.log(`[MailManager] Stopping clients for org ${orgId}...`);
+    for (const [inboxId, client] of this.clients.entries()) {
+      if ((client as any).config?.teamId === orgId) {
+        await client.disconnect();
+        this.clients.delete(inboxId);
+      }
+    }
+  }
+
+  /**
+   * Restarts all IMAP clients for a specific organization.
+   * Useful when a subscription is renewed.
+   */
+  public async restartClientsForOrg(orgId: string): Promise<void> {
+    console.log(`[MailManager] Starting clients for org ${orgId}...`);
+    const supabase = getSupabaseAdmin();
+    const { data: inboxes } = await supabase
+      .from("inboxes")
+      .select("id")
+      .eq("team_id", orgId)
+      .not("imap_host", "is", null);
+
+    if (inboxes) {
+      for (const inbox of inboxes) {
+        await this.restartClient(inbox.id);
+      }
+    }
   }
 
   /**

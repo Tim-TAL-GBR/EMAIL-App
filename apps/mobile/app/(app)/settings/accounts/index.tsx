@@ -173,7 +173,7 @@ export default function AccountsSettingsScreen() {
     try {
       const { data, error } = await supabase
         .from('inbox_aliases')
-        .select('*, profiles:user_id(id, email, display_name)')
+        .select('*')
         .eq('inbox_id', account.id)
         .order('created_at', { ascending: true });
       if (error) throw error;
@@ -210,13 +210,13 @@ export default function AccountsSettingsScreen() {
         const fileName = `${account.id}-${Date.now()}.${fileExt}`;
         const filePath = `inboxes/${fileName}`;
         
-        // Convert base64 to buffer for upload
-        const base64Data = asset.base64!;
-        // The React Native environment requires we use base64 upload or fetch blob
-        // Using decode function
+        // Fetch the file as a blob to correctly upload binary data (avoiding decodeURI errors with base64)
+        const fetchResponse = await fetch(asset.uri);
+        const blob = await fetchResponse.blob();
+
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('avatars')
-          .upload(filePath, decodeURIComponent(escape(atob(base64Data))), {
+          .upload(filePath, blob, {
             contentType: `image/${fileExt}`,
             upsert: true
           });
@@ -553,8 +553,21 @@ export default function AccountsSettingsScreen() {
         await supabase.from('team_members').insert([{
           team_id: newTeamId,
           user_id: userId,
-          role: 'admin'
+          role: 'owner' // Changed from admin to owner for billing rights
         }]);
+        
+        // Start 14-day trial for the new organization
+        const trialEndDate = new Date();
+        trialEndDate.setDate(trialEndDate.getDate() + 14);
+        
+        await supabase.from('subscriptions').insert([{
+          org_id: newTeamId,
+          plan: 'free',
+          status: 'trialing',
+          current_period_end: trialEndDate.toISOString(),
+          trial_ends_at: trialEndDate.toISOString()
+        }]);
+
         currentTeamId = newTeamId;
         setSelectedTeamId(currentTeamId);
       }

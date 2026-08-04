@@ -55,7 +55,11 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
         .map(i => i.id);
     } else if (activeContextType === 'private_inbox') {
       return activeContextId ? [activeContextId] : [];
-    } else if (activeContextType === 'global_inbox' || activeContextType === 'label') {
+    } else if (activeContextType === 'global_inbox') {
+      // For global inbox, we only listen to real-time events for private inboxes.
+      // The backend RPC will automatically fetch assigned/mentioned emails.
+      return inboxes.filter(i => i.type === 'private').map(i => i.id);
+    } else if (activeContextType === 'label') {
       return inboxes.map(i => i.id);
     }
     return [];

@@ -16,6 +16,7 @@ export const connection = new Redis(redisOptions);
 
 // Queues
 export const emailQueue = new Queue("email-processing", { connection });
+export const cleanupQueue = new Queue("cleanup-expired-orgs", { connection });
 
 // Types
 export interface ProcessEmailJob {
@@ -51,7 +52,43 @@ export interface ProcessEmailJob {
 // Worker Setup
 // ---------------------------------------------------------------------------
 
-export function startEmailWorker() {
+export async function startEmailWorker() {
+  // Add a recurring job to run every day at 3 AM
+  await cleanupQueue.add("daily-cleanup", {}, { repeat: { pattern: "0 3 * * *" } });
+
+  const cleanupWorker = new Worker("cleanup-expired-orgs", async (job) => {
+    console.log("[Cleanup] Running daily cleanup of expired orgs...");
+    const supabase = getSupabaseAdmin();
+
+    // Find orgs expired > 1 month ago
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+    const { data: expiredOrgs, error } = await supabase
+      .from('subscriptions')
+      .select('org_id')
+      .neq('status', 'active')
+      .neq('status', 'trialing')
+      .lt('current_period_end', oneMonthAgo.toISOString());
+
+    if (error) {
+      console.error("[Cleanup] Failed to fetch expired orgs:", error);
+      return;
+    }
+
+    if (expiredOrgs && expiredOrgs.length > 0) {
+      for (const org of expiredOrgs) {
+        console.log(`[Cleanup] Deleting emails for expired org: ${org.org_id}`);
+        // Delete all emails linked to inboxes of this org
+        const { data: inboxes } = await supabase.from('inboxes').select('id').eq('team_id', org.org_id);
+        if (inboxes && inboxes.length > 0) {
+          const inboxIds = inboxes.map(i => i.id);
+          await supabase.from('emails').delete().in('inbox_id', inboxIds);
+        }
+      }
+    }
+  }, { connection });
+
   const worker = new Worker("email-processing", async (job: Job<ProcessEmailJob>) => {
     console.log(`[Queue] Processing email job ${job.id} for inbox ${job.data.inboxId}`);
     const data = job.data;

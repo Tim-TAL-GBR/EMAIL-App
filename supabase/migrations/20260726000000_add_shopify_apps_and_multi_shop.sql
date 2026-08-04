@@ -2,7 +2,7 @@
 -- 1. New table: shopify_apps – per-team app credentials
 -- ===========================================================
 CREATE TABLE IF NOT EXISTS public.shopify_apps (
-    id            UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     team_id       UUID NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
     api_key       TEXT NOT NULL,
     api_secret    TEXT NOT NULL,

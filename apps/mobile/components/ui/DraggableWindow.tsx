@@ -44,18 +44,49 @@ export function DraggableWindow({ children, initialWidth = 800, initialHeight = 
     })
   ).current;
 
-  if (Platform.OS !== 'web' && Platform.OS !== 'macos') {
-    // Fallback if somehow used on pure mobile
-    return <View style={styles.fullscreen}>{children}</View>;
-  }
+  const windowSize = useRef(new Animated.ValueXY({ x: initialWidth, y: initialHeight })).current;
+
+  const resizeResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2;
+      },
+      onPanResponderGrant: () => {
+        windowSize.setOffset({
+          x: (windowSize.x as any)._value,
+          y: (windowSize.y as any)._value
+        });
+        windowSize.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const currentOffsetW = (windowSize.x as any)._offset;
+        const currentOffsetH = (windowSize.y as any)._offset;
+        
+        // Constrain minimum dimensions
+        const newWidth = Math.max(400, currentOffsetW + gestureState.dx);
+        const newHeight = Math.max(300, currentOffsetH + gestureState.dy);
+        
+        windowSize.setValue({ 
+          x: newWidth - currentOffsetW, 
+          y: newHeight - currentOffsetH 
+        });
+      },
+      onPanResponderRelease: () => {
+        windowSize.flattenOffset();
+      }
+    })
+  ).current;
+
+  // The component that mounts DraggableWindow (e.g. EmailComposer) already checks
+  // for desktop/tablet dimensions. We can safely render the draggable view here.
 
   return (
     <Animated.View
       style={[
         styles.window,
         {
-          width: initialWidth,
-          height: initialHeight,
+          width: windowSize.x,
+          height: windowSize.y,
           transform: [{ translateX: pan.x }, { translateY: pan.y }]
         }
       ]}
@@ -65,6 +96,9 @@ export function DraggableWindow({ children, initialWidth = 800, initialHeight = 
       </View>
       <View style={styles.content}>
         {children}
+      </View>
+      <View {...resizeResponder.panHandlers} style={styles.resizeHandle}>
+        <View style={styles.resizeHandleIcon} />
       </View>
     </Animated.View>
   );
@@ -98,5 +132,25 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-  }
+  },
+  resizeHandle: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 25,
+    height: 25,
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    padding: 6,
+    cursor: 'nwse-resize' as any,
+    zIndex: 10,
+  },
+  resizeHandleIcon: {
+    width: 10,
+    height: 10,
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
+    borderColor: Colors.textMuted,
+    borderBottomRightRadius: 2,
+  },
 });

@@ -7,21 +7,24 @@
     "scheme": "teammail",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "icon": "./assets/images/icon.png",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F172A"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.teammail.app",
       "infoPlist": {
         "NSCameraUsageDescription": "TeamMail benötigt Zugriff auf die Kamera, um Profilbilder aufzunehmen.",
         "NSPhotoLibraryUsageDescription": "TeamMail benötigt Zugriff auf die Fotomediathek, um Anhänge auszuwählen.",
-        "UIBackgroundModes": [
-          "remote-notification",
-          "remote-notification"
-        ],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#0F172A"
       },
       "package": "com.teammail.app",
@@ -39,7 +42,6 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-notifications",
       "expo-document-picker",
       "expo-splash-screen",
       "expo-status-bar",

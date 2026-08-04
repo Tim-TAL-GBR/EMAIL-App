@@ -1,6 +1,6 @@
 import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, LayoutRectangle, Alert, Platform, Modal } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, LayoutRectangle, Alert, Platform, Modal, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../lib/constants';
 import { EmailDetail } from '../email/EmailDetail';
@@ -23,7 +23,7 @@ interface EmailViewProps {
 }
 
 export function EmailView({ emailId: threadId }: EmailViewProps) {
-  const { threads, updateEmailStatus, archiveEmail, deleteEmail, snoozeEmail, markAsRead, pinnedThreads, togglePinThread } = useEmailStore();
+  const { threads, updateEmailStatus, archiveThread, deleteThread, snoozeEmail, markAsRead, pinnedThreads, togglePinThread } = useEmailStore();
   const [assignments, setAssignments] = useState<any[]>([]);
   const { labels, addLabelToEmail, fetchLabels } = useLabelStore();
 
@@ -241,21 +241,6 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
     <View style={styles.container}>
       <View style={{ flex: 1, flexDirection: Platform.OS === 'web' ? 'row' : 'column' }}>
         <View style={{ flex: 1 }}>
-          <ChatFeed 
-        emailId={selectedThread.emails[0].id} 
-        emails={selectedThread.emails}
-        inboxId={selectedThread.latestEmail.inbox_id}
-        threadId={selectedThread.id}
-        onEmailStatusChange={handleStatusChange}
-        onDraftPress={(draft) => {
-          openComposer({
-            mode: draft.in_reply_to ? 'reply' : 'new',
-            inboxId: selectedThread.latestEmail.inbox_id,
-            sourceEmail: draft ? { thread_id: draft.thread_id, message_id: draft.in_reply_to } as any : undefined,
-            draftToResume: draft
-          });
-        }}
-        headerComponent={
           <View style={styles.threadContainer}>
             <View style={styles.actionBar}>
               <View style={styles.actionLeft}>
@@ -297,10 +282,10 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
                   </TouchableOpacity>
                 </View>
                 
-                <TouchableOpacity style={styles.iconButton} onPress={() => archiveEmail(selectedThread.latestEmail.id)}>
+                <TouchableOpacity style={styles.iconButton} onPress={() => archiveThread(selectedThread.id)}>
                   <Feather name="archive" size={16} color={Colors.textSecondary} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.iconButton} onPress={() => deleteEmail(selectedThread.latestEmail.id)}>
+                <TouchableOpacity style={styles.iconButton} onPress={() => deleteThread(selectedThread.id)}>
                   <Feather name="trash-2" size={16} color={Colors.textSecondary} />
                 </TouchableOpacity>
                 
@@ -311,6 +296,24 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
                 </View>
               </View>
             </View>
+
+          <ChatFeed 
+        emailId={selectedThread.emails[0].id} 
+        emails={selectedThread.emails}
+        inboxId={selectedThread.latestEmail.inbox_id}
+        threadId={selectedThread.id}
+        onEmailStatusChange={handleStatusChange}
+        onDraftPress={(draft) => {
+          openComposer({
+            mode: draft.in_reply_to ? 'reply' : 'new',
+            inboxId: selectedThread.latestEmail.inbox_id,
+            sourceEmail: draft ? { thread_id: draft.thread_id, message_id: draft.in_reply_to } as any : undefined,
+            draftToResume: draft
+          });
+        }}
+        headerComponent={
+          <View style={styles.threadContainer}>
+
 
             <View style={styles.subjectContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
@@ -333,31 +336,35 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
       
       {Platform.OS === 'web' ? (
         showShopifyPanel && selectedThread?.latestEmail && (
-          <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA', padding: Spacing.md }}>
-            <ShopifyCustomerCard 
-              email={selectedThread.latestEmail.from_address} 
-              teamId={selectedThread.latestEmail.team_id}
-              detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
-            />
+          <View style={{ width: 320, borderLeftWidth: 1, borderColor: Colors.borderLight, backgroundColor: '#FAFAFA' }}>
+            <ScrollView contentContainerStyle={{ padding: Spacing.md }}>
+              <ShopifyCustomerCard 
+                email={selectedThread.latestEmail.from_address} 
+                teamId={selectedThread.latestEmail.team_id}
+                detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
+              />
+            </ScrollView>
           </View>
         )
       ) : (
         <Modal visible={showShopifyPanel} transparent animationType="slide" onRequestClose={() => setShowShopifyPanel(false)}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-            <View style={{ backgroundColor: '#FAFAFA', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '85%', padding: Spacing.lg, paddingBottom: 40 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md }}>
+            <View style={{ backgroundColor: '#FAFAFA', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '85%', paddingBottom: 40 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, paddingBottom: Spacing.sm }}>
                 <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold' }}>Shopify Details</Text>
                 <TouchableOpacity onPress={() => setShowShopifyPanel(false)} style={{ padding: 4 }}>
                   <Feather name="x" size={24} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
-              {selectedThread?.latestEmail && (
-                <ShopifyCustomerCard 
-                  email={selectedThread.latestEmail.from_address} 
-                  teamId={selectedThread.latestEmail.team_id}
-                  detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
-                />
-              )}
+              <ScrollView contentContainerStyle={{ paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg }}>
+                {selectedThread?.latestEmail && (
+                  <ShopifyCustomerCard 
+                    email={selectedThread.latestEmail.from_address} 
+                    teamId={selectedThread.latestEmail.team_id}
+                    detectedOrderNumber={selectedThread.subject.match(/#\d{4,}/)?.[0]}
+                  />
+                )}
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -415,7 +422,8 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
             setMoreMenuVisible(false);
             setTimeout(() => setTaskComposerVisible(true), 300);
           } },
-          { id: 'trash', label: 'Löschen', icon: 'trash-2', destructive: true, onPress: () => deleteEmail(selectedThread.latestEmail.id) },
+          { id: 'archive', label: 'Archivieren', icon: 'archive', onPress: () => archiveThread(selectedThread.id) },
+          { id: 'trash', label: 'Löschen', icon: 'trash-2', destructive: true, onPress: () => deleteThread(selectedThread.id) },
         ]}
       />
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { WebView } from 'react-native-webview';
-import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Linking } from 'react-native';
 import { format, parseISO } from 'date-fns';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, BorderRadius, Shadows } from '../../lib/constants';
 import { Badge } from '../ui/Badge';
@@ -23,6 +23,8 @@ function sanitizeHtml(html: string): string {
 }
 import { useEmailStore } from '../../stores/emailStore';
 import { useInboxes } from '../../hooks/useInboxes';
+import { useInboxStore } from '../../stores/inboxStore';
+import { Avatar } from '../ui/Avatar';
 import { Feather } from '@expo/vector-icons';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal';
 import { AttachmentPreview } from './AttachmentPreview';
@@ -38,6 +40,7 @@ interface EmailDetailData {
   body_html?: string | null;
   snippet?: string | null;
   received_at: string | null;
+  direction?: 'inbound' | 'outbound';
   status: 'open' | 'in_progress' | 'done';
   email_attachments?: {
     id: string;
@@ -112,7 +115,16 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
   };
  
   const senderName = parseSenderName(email.from_address);
-  const senderInitials = senderName.substring(0, 2).toUpperCase();
+  const senderInitials = email.from_address.substring(0, 2).toUpperCase();
+  const inboxDisplay = email.to_addresses && email.to_addresses.length > 0 ? email.to_addresses[0] : 'Unbekannt';
+  
+  const inboxStore = useInboxStore(s => s.inboxes);
+  let avatarUri = null;
+  if (email.direction === 'outbound') {
+    const inbox = inboxStore.find(i => i.id === email.inbox_id);
+    if (inbox?.avatar_url) avatarUri = inbox.avatar_url;
+  }
+
   const plainBody = email.snippet || '';
   const attachments = email.email_attachments || [];
 
@@ -128,9 +140,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
   if (isCollapsed) {
     return (
       <TouchableOpacity style={styles.cardCollapsed} onPress={() => setIsCollapsed(false)} activeOpacity={0.7}>
-        <View style={styles.avatarSmall}>
-          <Text style={styles.avatarTextSmall}>{senderInitials}</Text>
-        </View>
+        <Avatar name={senderName} size={32} uri={avatarUri} />
         <View style={styles.collapsedContent}>
           <View style={styles.collapsedHeaderRow}>
             <Text style={styles.senderName} numberOfLines={1}>{senderName}</Text>
@@ -155,9 +165,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
           onPress={() => setIsCollapsed(true)}
           activeOpacity={0.8}
         >
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{senderInitials}</Text>
-          </View>
+          <Avatar name={senderName} size={40} uri={avatarUri} />
           <View style={styles.headerInfo}>
             <Text style={styles.senderNameBold}>{senderName}</Text>
             <View style={styles.headerSubtitleRow}>
@@ -237,6 +245,14 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
                 if (!isNaN(height) && height > 0) {
                   setWebViewHeight(height + 20);
                 }
+              }}
+              onShouldStartLoadWithRequest={(request) => {
+                // If the URL is an external link (http/https) and not the initial load, open it in the system browser
+                if (request.url.startsWith('http') && !request.url.includes('about:blank')) {
+                  Linking.openURL(request.url);
+                  return false;
+                }
+                return true;
               }}
             />
           )

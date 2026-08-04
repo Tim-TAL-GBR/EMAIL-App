@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, Text, ActivityIndicator, Alert, Platform, useWindowDimensions, ScrollView } from 'react-native';
+import { View, StyleSheet, TextInput, Modal, SafeAreaView, TouchableOpacity, Text, ActivityIndicator, Alert, Platform, useWindowDimensions, ScrollView, LayoutRectangle } from 'react-native';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius, FontFamily } from '../../lib/constants';
 import { Button } from '../ui/Button';
 import { supabase } from '../../lib/supabase';
@@ -13,6 +13,7 @@ import { useComposerStore } from '../../stores/composerStore';
 import { useInboxes } from '../../hooks/useInboxes';
 import { useSignatures } from '../../hooks/useSignatures';
 import { useDraft } from '../../hooks/useDraft';
+import { PopoverMenu } from '../ui/PopoverMenu';
 
 const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'https://mail.tim-regener.com';
 const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024;
@@ -98,6 +99,11 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
   const [templates, setTemplates] = useState<{ id: string; name: string; subject?: string; body: string }[]>([]);
   const footerApplied = useRef(false);
+
+  type SendAction = 'send' | 'send_and_close' | 'send_and_archive';
+  const [sendMenuVisible, setSendMenuVisible] = useState(false);
+  const [sendMenuAnchor, setSendMenuAnchor] = useState<LayoutRectangle>();
+  const sendBtnRef = useRef<View>(null);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null);
 
@@ -130,7 +136,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   }
 
   // Autocomplete: collect all known email addresses from loaded threads
-  const threads = useEmailStore(s => s.threads);
+  const threads = useEmailStore(s => s.threads || []);
   const allContacts = useMemo(() => {
     const seen = new Map<string, { address: string; count: number; lastSeen: string }>();
     threads.forEach(t => {
@@ -500,7 +506,22 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   }, [sourceEmail, subject, userSigSettings]);
 
 
-  const handleSend = useCallback(async () => {
+  const handleSend = useCallback(async (action: SendAction = 'send_and_close') => {
+    // 0. Check subscription status
+    const teamId = inboxes.find(i => i.id === activeInboxId)?.team_id;
+    if (teamId) {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('status')
+        .eq('org_id', teamId)
+        .single();
+      
+      if (sub && sub.status !== 'active' && sub.status !== 'trialing') {
+        Alert.alert('Abonnement abgelaufen', 'Du kannst keine E-Mails senden, da das Abonnement für diese Organisation abgelaufen ist.');
+        return;
+      }
+    }
+
     // 1. Check uploading
     if (hasUploading) {
       Alert.alert('Upload läuft', 'Bitte warte, bis alle Anhänge hochgeladen sind.');
@@ -580,6 +601,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         references: mode === 'reply' ? sourceEmail?.message_id : undefined,
         attachments,
         fromAddress: senderAddress || undefined,
+        status: action === 'send' ? 'open' : 'done',
       };
 
       const response = await fetch(`${API_URL}/api/mail/send`, {
@@ -596,6 +618,16 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         throw new Error(error.error || 'Fehler beim Senden');
       }
 
+      const emailStore = useEmailStore.getState();
+      if (sourceEmail) {
+        if (action === 'send_and_close') {
+          await emailStore.updateEmailStatus(sourceEmail.id, 'done');
+        } else if (action === 'send_and_archive') {
+          const threadId = sourceEmail.thread_id || sourceEmail.message_id || sourceEmail.id;
+          await emailStore.archiveThread(threadId);
+        }
+      }
+
       await deleteDraft();
       onClose();
     } catch (error: any) {
@@ -607,7 +639,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to send (web)
   useEffect(() => {
-    if (!visible || !isDesktop) return;
+    if (!visible || Platform.OS !== 'web') return;
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
@@ -659,14 +691,45 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
           {saveStatus === 'saving' && <Text style={styles.saveStatus}>Speichert…</Text>}
           {saveStatus === 'saved' && <Text style={[styles.saveStatus, { color: Colors.success }]}>Gespeichert</Text>}
         </View>
-        <Button
-          title="Senden"
-          size="sm"
-          onPress={handleSend}
-          isLoading={isSending}
-          disabled={isSending || hasUploading}
-        />
+        <View style={styles.splitBtnContainer} ref={sendBtnRef} collapsable={false}>
+          <TouchableOpacity
+            style={[styles.splitBtnMain, (isSending || hasUploading) && styles.splitBtnDisabled]}
+            onPress={() => handleSend('send_and_close')}
+            disabled={isSending || hasUploading}
+          >
+            {isSending ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Text style={styles.splitBtnText}>Senden & Schließen</Text>
+            )}
+          </TouchableOpacity>
+          <View style={styles.splitBtnDivider} />
+          <TouchableOpacity
+            style={[styles.splitBtnIcon, (isSending || hasUploading) && styles.splitBtnDisabled]}
+            disabled={isSending || hasUploading}
+            onPress={() => {
+              sendBtnRef.current?.measureInWindow((x, y, width, height) => {
+                setSendMenuAnchor({ x, y, width, height });
+                setSendMenuVisible(true);
+              });
+            }}
+          >
+            <Feather name="chevron-down" size={16} color="#FFF" />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      <PopoverMenu
+        visible={sendMenuVisible}
+        onClose={() => setSendMenuVisible(false)}
+        anchorRect={sendMenuAnchor}
+        width={220}
+        items={[
+          { id: 'send_close', label: 'Senden & Schließen', icon: 'check-circle', onPress: () => { setSendMenuVisible(false); handleSend('send_and_close'); } },
+          { id: 'send', label: 'Senden (Offen lassen)', icon: 'send', onPress: () => { setSendMenuVisible(false); handleSend('send'); } },
+          { id: 'send_archive', label: 'Senden & Archivieren', icon: 'archive', onPress: () => { setSendMenuVisible(false); handleSend('send_and_archive'); } },
+        ]}
+      />
 
       <View style={styles.form}>
         <View style={styles.inputRow}>
@@ -1098,6 +1161,45 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: FontWeight.medium,
     paddingTop: 6,
+  },
+  dragText: {
+    marginLeft: 8,
+    color: Colors.textSecondary,
+    fontSize: 12,
+  },
+  splitBtnContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    height: 32,
+    overflow: 'hidden',
+  },
+  splitBtnMain: {
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
+  },
+  splitBtnDivider: {
+    width: 1,
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  splitBtnIcon: {
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
+  },
+  splitBtnText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: FontFamily,
+  },
+  splitBtnDisabled: {
+    opacity: 0.6,
   },
   input: {
     flex: 1,

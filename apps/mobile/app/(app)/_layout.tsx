@@ -6,6 +6,8 @@ import { Feather } from '@expo/vector-icons';
 import { DesktopLayout } from '../../components/layout/DesktopLayout';
 import { Onboarding } from '../../components/layout/Onboarding';
 import { useInboxes } from '../../hooks/useInboxes';
+import { OfflineIndicator } from '../../components/OfflineIndicator';
+import { SubscriptionBanner } from '../../components/SubscriptionBanner';
 
 const isMac = Platform.OS === 'macos';
 const BREAKPOINT_TABLET = 768;
@@ -34,14 +36,20 @@ export default function AppLayout() {
 
   if (isDesktop && !isSettings) {
     return (
-      <DesktopLayout>
-        <Slot />
-      </DesktopLayout>
+      <View style={{ flex: 1 }}>
+        <OfflineIndicator />
+        <SubscriptionBanner />
+        <DesktopLayout>
+          <Slot />
+        </DesktopLayout>
+      </View>
     );
   }
 
   return (
     <View style={styles.container}>
+      <OfflineIndicator />
+      <SubscriptionBanner />
       <View style={styles.content}>
         <Stack screenOptions={{ 
           headerShown: true,
