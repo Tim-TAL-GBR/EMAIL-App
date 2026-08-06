@@ -97,7 +97,8 @@ export function useComments(emailId: string | null): UseCommentsReturn {
 
     // Subscribe to realtime changes on comments for this email.
     // Remove stale channel first (React Strict Mode double-invoke guard).
-    const channelName = `comments-${emailId}`;
+    const channelId = Math.random().toString(36).slice(2);
+    const channelName = `comments-${emailId}-${channelId}`;
     const stale = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
     if (stale) supabase.removeChannel(stale);
 

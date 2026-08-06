@@ -116,7 +116,9 @@ function computeThreads(emails: Email[]): Thread[] {
   const threadMap = new Map<string, Email[]>();
   
   emails.forEach(email => {
-    const key = email.thread_id || email.message_id || email.id;
+    const fallbackKey = email.subject ? `${email.subject}|${email.from_address}` : email.id;
+    const key = email.thread_id || email.message_id || fallbackKey;
+    
     if (!threadMap.has(key)) threadMap.set(key, []);
     threadMap.get(key)!.push(email);
   });
@@ -124,21 +126,33 @@ function computeThreads(emails: Email[]): Thread[] {
   const threads: Thread[] = [];
   for (const [id, threadEmails] of threadMap.entries()) {
     threadEmails.sort((a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime());
-    const latestEmail = threadEmails[threadEmails.length - 1];
+    
+    const uniqueEmails: Email[] = [];
+    const seen = new Set<string>();
+    threadEmails.forEach(e => {
+      const dedupKey = (e.subject && e.received_at) ? `${e.subject}|${e.from_address}|${e.received_at}` : e.id;
+      if (!seen.has(dedupKey)) {
+        seen.add(dedupKey);
+        uniqueEmails.push(e);
+      }
+    });
+
+    const latestEmail = uniqueEmails[uniqueEmails.length - 1];
+    if (!latestEmail) continue;
     
     const pSet = new Set<string>();
-    threadEmails.forEach(e => {
+    uniqueEmails.forEach(e => {
       pSet.add(e.from_address);
       e.to_addresses.forEach(t => pSet.add(t));
     });
 
     threads.push({
       id,
-      emails: threadEmails,
+      emails: uniqueEmails,
       latestEmail,
       subject: latestEmail.subject || "(Kein Betreff)",
-      is_read: threadEmails.every(e => e.is_read),
-      is_starred: threadEmails.some(e => e.is_starred),
+      is_read: uniqueEmails.every(e => e.is_read),
+      is_starred: uniqueEmails.some(e => e.is_starred),
       participants: Array.from(pSet)
     });
   }
@@ -151,20 +165,75 @@ function computeThreads(emails: Email[]): Thread[] {
   return threads;
 }
 
-let _threadComputeTimer: ReturnType<typeof setTimeout> | null = null;
-let _pendingThreadUpdate: (() => void) | null = null;
+
 const MAX_EMAILS = 500;
 
-function debouncedComputeThreads(emails: Email[], set: any) {
-  if (_threadComputeTimer) clearTimeout(_threadComputeTimer);
-  _pendingThreadUpdate = () => {
-    set({ threads: computeThreads(emails) });
-  };
-  _threadComputeTimer = setTimeout(() => {
-    _pendingThreadUpdate?.();
-    _pendingThreadUpdate = null;
-  }, 50);
+// Batching queues for realtime updates
+type UpdateOperation = 
+  | { type: 'add', payload: Email }
+  | { type: 'update', payload: Partial<Email> & { id: string } }
+  | { type: 'remove', payload: { id: string } };
+
+let _updateQueue: UpdateOperation[] = [];
+let _flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function _queueEmailUpdate(type: 'add' | 'update' | 'remove', payload: any) {
+  _updateQueue.push({ type, payload } as UpdateOperation);
 }
+
+function _flushEmailUpdates(set: any, get: any) {
+  if (_flushTimer) return; // already scheduled
+  
+  _flushTimer = setTimeout(() => {
+    _flushTimer = null;
+    if (_updateQueue.length === 0) return;
+    
+    const queue = [..._updateQueue];
+    _updateQueue = [];
+    
+    set((state: any) => {
+      let emails = [...state.emails];
+      let needsRecompute = false;
+      const { activeMailbox } = useNavigationStore.getState();
+      
+      for (const op of queue) {
+        if (op.type === 'add') {
+          const email = op.payload as Email;
+          if (!emails.some(e => e.id === email.id)) {
+            if (!activeMailbox || email.mailbox_name === activeMailbox) {
+              emails.unshift(email);
+              needsRecompute = true;
+            }
+          }
+        } else if (op.type === 'update') {
+          const updatedEmail = op.payload as Partial<Email> & { id: string };
+          const idx = emails.findIndex(e => e.id === updatedEmail.id);
+          if (idx !== -1) {
+            emails[idx] = { ...emails[idx], ...updatedEmail };
+            needsRecompute = true; // Could optimize by doing granular thread updates, but recompute is safer for batching
+          }
+        } else if (op.type === 'remove') {
+          const id = op.payload.id;
+          const initialLength = emails.length;
+          emails = emails.filter(e => e.id !== id);
+          if (emails.length !== initialLength) {
+            needsRecompute = true;
+          }
+        }
+      }
+      
+      if (!needsRecompute) return state;
+      
+      emails = emails.slice(0, MAX_EMAILS);
+      return {
+        emails,
+        threads: computeThreads(emails),
+      };
+    });
+  }, 300); // 300ms batching window
+}
+
+
 
 /** Shape of the email state and actions */
 interface EmailState {
@@ -179,6 +248,7 @@ interface EmailState {
   /** Error message if fetch failed */
   error: string | null;
   _currentFetchId: number;
+  _fetchOffset: number;
 
   /** Whether more emails are being fetched */
   isLoadingMore: boolean;
@@ -234,18 +304,18 @@ export const useEmailStore = create<EmailState>()(
   setVisibleThreadIds: (ids) => set({ visibleThreadIds: ids }),
   isLoading: false,
   isLoadingMore: false,
-  hasMoreEmails: false,
+  hasMoreEmails: true,
+  _currentFetchId: 0,
+  _fetchOffset: 0,
   error: null,
 
   getEmailById: (id) => {
     return get().emails.find((email) => email.id === id);
   },
-
-  _currentFetchId: 0,
   
   fetchEmails: async (inboxIds: string[], labelId?: string, contextType?: string, filterType?: string, mailboxName?: string) => {
     const fetchId = Date.now();
-    set({ isLoading: true, error: null, _currentFetchId: fetchId });
+    set({ isLoading: true, isLoadingMore: false, error: null, _currentFetchId: fetchId, _fetchOffset: 0 });
 
     if (contextType !== 'assigned' && (!inboxIds || inboxIds.length === 0)) {
       set({ emails: [], threads: [], isLoading: false });
@@ -284,6 +354,12 @@ export const useEmailStore = create<EmailState>()(
         query = query.eq('is_deleted', true);
       } else if (filterType === 'archived') {
         query = query.eq('is_archived', true);
+      } else if (filterType === 'sent') {
+        query = query.eq('direction', 'outbound').eq('is_deleted', false);
+      } else if (filterType === 'needs_attention') {
+        query = query.eq('is_archived', false).eq('is_deleted', false).neq('status', 'done');
+      } else if (filterType === 'done') {
+        query = query.eq('is_archived', false).eq('is_deleted', false).eq('status', 'done');
       } else if (!mailboxName) {
         query = query.eq('is_archived', false).eq('is_deleted', false);
       }
@@ -297,7 +373,7 @@ export const useEmailStore = create<EmailState>()(
       }
       
       const limit = 50;
-      const { data, error } = await query.order('last_activity_at', { ascending: false }).limit(limit);
+      const { data, error } = await query.order('last_activity_at', { ascending: false }).order('id', { ascending: false }).limit(limit);
 
       if (error) {
         console.error('Fetch emails error:', error);
@@ -311,7 +387,7 @@ export const useEmailStore = create<EmailState>()(
       }
 
       const emails = (data as Email[]) ?? [];
-      set({ emails, threads: computeThreads(emails), isLoading: false, hasMoreEmails: emails.length === limit });
+      set({ emails, threads: computeThreads(emails), isLoading: false, hasMoreEmails: emails.length === limit, _fetchOffset: emails.length });
     } catch (err) {
       if (get()._currentFetchId !== fetchId) return;
       set({
@@ -363,6 +439,12 @@ export const useEmailStore = create<EmailState>()(
         query = query.eq('is_deleted', true);
       } else if (filterType === 'archived') {
         query = query.eq('is_archived', true);
+      } else if (filterType === 'sent') {
+        query = query.eq('direction', 'outbound').eq('is_deleted', false);
+      } else if (filterType === 'needs_attention') {
+        query = query.eq('is_archived', false).eq('is_deleted', false).neq('status', 'done');
+      } else if (filterType === 'done') {
+        query = query.eq('is_archived', false).eq('is_deleted', false).eq('status', 'done');
       } else if (!mailboxName) {
         query = query.eq('is_archived', false).eq('is_deleted', false);
       }
@@ -376,11 +458,12 @@ export const useEmailStore = create<EmailState>()(
       }
       
       const currentEmails = get().emails;
-      const offset = currentEmails.length;
+      const offset = get()._fetchOffset;
       const limit = 50;
       
       const { data, error } = await query
         .order('last_activity_at', { ascending: false })
+        .order('id', { ascending: false })
         .range(offset, offset + limit - 1);
 
       if (error) {
@@ -406,7 +489,8 @@ export const useEmailStore = create<EmailState>()(
         emails: allEmails, 
         threads: computeThreads(allEmails), 
         isLoadingMore: false, 
-        hasMoreEmails: newEmails.length === limit && allEmails.length < MAX_EMAILS
+        hasMoreEmails: newEmails.length === limit && allEmails.length < MAX_EMAILS && uniqueNewEmails.length > 0,
+        _fetchOffset: offset + limit
       });
     } catch (err) {
       if (get()._currentFetchId !== fetchId) return;
@@ -458,23 +542,28 @@ export const useEmailStore = create<EmailState>()(
       .eq('id', emailId);
 
     if (error) {
-      // Revert on error
-      set((state) => {
-        const emails = state.emails.map((e) =>
-          e.id === emailId ? { ...e, status: oldStatus } : e,
-        );
-        const threads = state.threads.map(t => {
-          if (t.emails.some(e => e.id === emailId)) {
-            return {
-              ...t,
-              emails: t.emails.map(e => e.id === emailId ? { ...e, status: oldStatus } : e),
-              latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, status: oldStatus } : t.latestEmail
-            };
-          }
-          return t;
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        useOfflineSyncStore.getState().queueAction('UPDATE_STATUS', { emailId, status });
+      } else {
+        // Revert on error
+        set((state) => {
+          const emails = state.emails.map((e) =>
+            e.id === emailId ? { ...e, status: oldStatus } : e,
+          );
+          const threads = state.threads.map(t => {
+            if (t.emails.some(e => e.id === emailId)) {
+              return {
+                ...t,
+                emails: t.emails.map(e => e.id === emailId ? { ...e, status: oldStatus } : e),
+                latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, status: oldStatus } : t.latestEmail
+              };
+            }
+            return t;
+          });
+          return { emails, threads };
         });
-        return { emails, threads };
-      });
+      }
     }
   },
 
@@ -507,22 +596,27 @@ export const useEmailStore = create<EmailState>()(
       .eq('id', emailId);
 
     if (error) {
-      set((state) => {
-        const emails = state.emails.map((e) =>
-          e.id === emailId ? { ...e, snooze_until: oldSnooze, status: oldEmail.status } : e,
-        );
-        const threads = state.threads.map(t => {
-          if (t.emails.some(e => e.id === emailId)) {
-            return {
-              ...t,
-              emails: t.emails.map(e => e.id === emailId ? { ...e, snooze_until: oldSnooze, status: oldEmail.status } : e),
-              latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, snooze_until: oldSnooze, status: oldEmail.status } : t.latestEmail
-            };
-          }
-          return t;
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        useOfflineSyncStore.getState().queueAction('SNOOZE', { emailId, until: newSnoozeStr });
+      } else {
+        set((state) => {
+          const emails = state.emails.map((e) =>
+            e.id === emailId ? { ...e, snooze_until: oldSnooze, status: oldEmail.status } : e,
+          );
+          const threads = state.threads.map(t => {
+            if (t.emails.some(e => e.id === emailId)) {
+              return {
+                ...t,
+                emails: t.emails.map(e => e.id === emailId ? { ...e, snooze_until: oldSnooze, status: oldEmail.status } : e),
+                latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, snooze_until: oldSnooze, status: oldEmail.status } : t.latestEmail
+              };
+            }
+            return t;
+          });
+          return { emails, threads };
         });
-        return { emails, threads };
-      });
+      }
     }
   },
 
@@ -558,29 +652,38 @@ export const useEmailStore = create<EmailState>()(
       .eq('id', emailId);
 
     if (error) {
-      // Revert on error
-      set((state) => {
-        const emails = state.emails.map((e) =>
-          e.id === emailId ? { ...e, is_starred: !newStarred } : e,
-        );
-        const threads = state.threads.map(t => {
-          if (t.emails.some(e => e.id === emailId)) {
-            const updatedEmails = t.emails.map(e => e.id === emailId ? { ...e, is_starred: !newStarred } : e);
-            return {
-              ...t,
-              emails: updatedEmails,
-              latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, is_starred: !newStarred } : t.latestEmail,
-              is_starred: updatedEmails.some(e => e.is_starred)
-            };
-          }
-          return t;
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        useOfflineSyncStore.getState().queueAction('TOGGLE_STAR', { emailId });
+      } else {
+        // Revert on error
+        set((state) => {
+          const emails = state.emails.map((e) =>
+            e.id === emailId ? { ...e, is_starred: !newStarred } : e,
+          );
+          const threads = state.threads.map(t => {
+            if (t.emails.some(e => e.id === emailId)) {
+              const updatedEmails = t.emails.map(e => e.id === emailId ? { ...e, is_starred: !newStarred } : e);
+              return {
+                ...t,
+                emails: updatedEmails,
+                latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, is_starred: !newStarred } : t.latestEmail,
+                is_starred: updatedEmails.some(e => e.is_starred)
+              };
+            }
+            return t;
+          });
+          return { emails, threads };
         });
-        return { emails, threads };
-      });
+      }
     }
   },
 
   markAsRead: async (emailId) => {
+    const oldEmail = get().emails.find(e => e.id === emailId);
+    if (!oldEmail) return;
+    const oldRead = oldEmail.is_read;
+
     set((state) => {
       const emails = state.emails.map((e) =>
         e.id === emailId ? { ...e, is_read: true } : e,
@@ -609,68 +712,43 @@ export const useEmailStore = create<EmailState>()(
       const netState = await NetInfo.fetch();
       if (!netState.isConnected) {
         useOfflineSyncStore.getState().queueAction('MARK_READ', { emailId });
+      } else {
+        // Revert on error
+        set((state) => {
+          const emails = state.emails.map((e) =>
+            e.id === emailId ? { ...e, is_read: oldRead } : e,
+          );
+          const threads = state.threads.map(t => {
+            if (t.emails.some(e => e.id === emailId)) {
+              const updatedEmails = t.emails.map(e => e.id === emailId ? { ...e, is_read: oldRead } : e);
+              return {
+                ...t,
+                emails: updatedEmails,
+                latestEmail: t.latestEmail.id === emailId ? { ...t.latestEmail, is_read: oldRead } : t.latestEmail,
+                is_read: updatedEmails.every(e => e.is_read)
+              };
+            }
+            return t;
+          });
+          return { emails, threads };
+        });
       }
     }
   },
 
   addEmail: (email) => {
-    set((state) => {
-      if (state.emails.some((e) => e.id === email.id)) {
-        return state;
-      }
-      const { activeMailbox } = useNavigationStore.getState();
-      if (activeMailbox && email.mailbox_name !== activeMailbox) {
-        return state;
-      }
-      const emails = [email, ...state.emails].slice(0, MAX_EMAILS);
-      return {
-        emails,
-        threads: computeThreads(emails),
-      };
-    });
+    _queueEmailUpdate('add', email);
+    _flushEmailUpdates(set, get);
   },
 
   updateEmail: (updatedEmail) => {
-    set((state) => {
-      const emails = state.emails.map((e) =>
-        e.id === updatedEmail.id ? { ...e, ...updatedEmail } : e,
-      );
-      const threads = state.threads.map(t => {
-        if (t.emails.some(e => e.id === updatedEmail.id)) {
-          const newEmails = t.emails.map(e => e.id === updatedEmail.id ? { ...e, ...updatedEmail } : e);
-          return {
-            ...t,
-            emails: newEmails,
-            latestEmail: t.latestEmail.id === updatedEmail.id ? { ...t.latestEmail, ...updatedEmail } : t.latestEmail,
-            is_read: newEmails.every(e => e.is_read),
-            is_starred: newEmails.some(e => e.is_starred)
-          };
-        }
-        return t;
-      });
-      return { emails, threads };
-    });
+    _queueEmailUpdate('update', updatedEmail);
+    _flushEmailUpdates(set, get);
   },
 
   removeEmail: (emailId) => {
-    set((state) => {
-      const emails = state.emails.filter((e) => e.id !== emailId);
-      const threads = state.threads.map(t => {
-        if (t.emails.some(e => e.id === emailId)) {
-          const newEmails = t.emails.filter(e => e.id !== emailId);
-          if (newEmails.length === 0) return null;
-          return {
-            ...t,
-            emails: newEmails,
-            latestEmail: newEmails[newEmails.length - 1],
-            is_read: newEmails.every(e => e.is_read),
-            is_starred: newEmails.some(e => e.is_starred),
-          };
-        }
-        return t;
-      }).filter(Boolean) as Thread[];
-      return { emails, threads };
-    });
+    _queueEmailUpdate('remove', { id: emailId });
+    _flushEmailUpdates(set, get);
   },
 
   archiveThread: async (threadId: string) => {
@@ -761,9 +839,14 @@ export const useEmailStore = create<EmailState>()(
         },
         body: JSON.stringify({ emailIds, action })
       });
-      if (!response.ok) throw new Error('Failed to perform bulk action');
-    } catch (e) {
-      console.error('[emailStore] bulkActionEmails error:', e);
+      const responseText = await response.text();
+      if (!response.ok) {
+        // Prevent huge HTML error pages from crashing the iOS Alert bridge
+        const safeResponse = responseText.length > 200 ? responseText.substring(0, 200) + '...' : responseText;
+        throw new Error(`Aktion fehlgeschlagen (${response.status}): ${safeResponse}`);
+      }
+    } catch (e: any) {
+      console.error('[emailStore] bulkActionEmails error:', e.message);
       const netState = await NetInfo.fetch();
       if (!netState.isConnected) {
         if (action === 'read') {

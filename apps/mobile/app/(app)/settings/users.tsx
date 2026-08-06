@@ -2,7 +2,7 @@ import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions
+  TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions, Platform
 } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
@@ -36,7 +36,9 @@ async function apiRequest(path: string, method = 'GET', body?: object) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const json = await res.json();
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error(res.ok ? `Ungültige Serverantwort` : `Server nicht erreichbar oder fehlerhaft (HTML).`); }
   if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
   return json;
 }
@@ -496,11 +498,19 @@ export default function UsersSettingsScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => {
                       const name = user.display_name || user.email;
-                      const confirmed = typeof window !== 'undefined'
-                        ? window.confirm(`Soll ${name} wirklich gelöscht werden? Diese Aktion kann nicht rückgängig gemacht werden.`)
-                        : true;
-                      if (!confirmed) return;
-                      handleDeleteUser(user.id, name);
+                      if (Platform.OS === 'web') {
+                        const confirmed = window.confirm(`Soll ${name} wirklich gelöscht werden? Diese Aktion kann nicht rückgängig gemacht werden.`);
+                        if (confirmed) handleDeleteUser(user.id, name);
+                      } else {
+                        Alert.alert(
+                          'Benutzer löschen',
+                          `Soll ${name} wirklich gelöscht werden? Diese Aktion kann nicht rückgängig gemacht werden.`,
+                          [
+                            { text: 'Abbrechen', style: 'cancel' },
+                            { text: 'Löschen', style: 'destructive', onPress: () => handleDeleteUser(user.id, name) }
+                          ]
+                        );
+                      }
                     }}>
                       <Text style={[styles.roleChip, { color: Colors.error }]}>Löschen</Text>
                     </TouchableOpacity>

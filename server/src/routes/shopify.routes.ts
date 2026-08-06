@@ -26,21 +26,28 @@ async function verifyShopifySessionToken(token: string, shopDomain: string): Pro
   }
 
   const supabase = getSupabaseAdmin();
-  let { data: conn } = await supabase
+  let { data: conn, error: connError } = await supabase
     .from("shopify_connections")
     .select("team_id")
     .eq("shop_domain", shopDomain)
     .maybeSingle();
 
   if (!conn) {
-    conn = (await supabase
+    const { data: fallbackConn, error: fallbackError } = await supabase
       .from("shopify_connections")
       .select("team_id")
       .eq("primary_domain", shopDomain)
-      .maybeSingle()).data;
+      .maybeSingle();
+    conn = fallbackConn;
+    if (!conn) {
+      console.error(`[OrderComm] DB Error1: ${JSON.stringify(connError)} | Error2: ${JSON.stringify(fallbackError)}`);
+    }
   }
 
-  if (!conn) throw new Error("Shop not connected");
+  if (!conn) {
+    console.error(`[OrderComm] Shop not connected for domain: "${shopDomain}"`);
+    throw new Error(`Shop not connected: ${shopDomain}`);
+  }
 
   const shopify = await getShopifyForTeam(conn.team_id);
   if (!shopify) throw new Error("Shopify app not configured");
@@ -302,12 +309,19 @@ shopifyRouter.get("/customer", requireAuth, async (req, res) => {
   const email = emailMatch[1]!;
 
   try {
-    const shopify = await getShopifyForTeam(teamId);
-    if (!shopify) {
-      return res.status(404).json({ error: "No Shopify app configured for this team" });
+    const supabase = getSupabaseAdmin();
+    const { data: membership } = await supabase
+      .from("team_members")
+      .select("role")
+      .eq("team_id", teamId)
+      .eq("user_id", req.user!.sub)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(403).json({ error: "Access denied" });
     }
 
-    const supabase = getSupabaseAdmin();
+    const shopify = await getShopifyForTeam(teamId);
     const { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("*")
@@ -431,6 +445,17 @@ shopifyRouter.get("/order/detail", requireAuth, async (req, res) => {
 
   try {
     const supabase = getSupabaseAdmin();
+    const { data: membership } = await supabase
+      .from("team_members")
+      .select("role")
+      .eq("team_id", teamId)
+      .eq("user_id", req.user!.sub)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
     const { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("*")
@@ -566,12 +591,23 @@ shopifyRouter.post("/order/cancel", requireAuth, async (req, res) => {
   }
 
   try {
+    const supabase = getSupabaseAdmin();
+    const { data: membership } = await supabase
+      .from("team_members")
+      .select("role")
+      .eq("team_id", teamId)
+      .eq("user_id", req.user!.sub)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
     const shopify = await getShopifyForTeam(teamId);
     if (!shopify) {
       return res.status(404).json({ error: "No Shopify app configured for this team" });
     }
 
-    const supabase = getSupabaseAdmin();
     let connectionQuery = supabase
       .from("shopify_connections")
       .select("*")
@@ -635,6 +671,17 @@ shopifyRouter.post("/order/update", requireAuth, async (req, res) => {
 
   try {
     const supabase = getSupabaseAdmin();
+    const { data: membership } = await supabase
+      .from("team_members")
+      .select("role")
+      .eq("team_id", teamId)
+      .eq("user_id", req.user!.sub)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
     const { data: rawConnection } = await supabase
       .from("shopify_connections")
       .select("*")
@@ -805,9 +852,25 @@ shopifyRouter.get("/order-communication", async (req, res) => {
       if (!error) emails = data || [];
     }
 
-    console.log("[OrderComm] Response:", { emailCount: emails.length, resolvedEmail });
+    // Fetch available sender options (aliases) for this team's inboxes
+    const { data: teamInboxes } = await supabase
+      .from("inboxes")
+      .select("id")
+      .eq("team_id", teamId);
+    
+    let senderOptions: any[] = [];
+    if (teamInboxes && teamInboxes.length > 0) {
+      const inboxIds = teamInboxes.map(i => i.id);
+      const { data: aliases } = await supabase
+        .from("inbox_aliases")
+        .select("id, name, email_address, signature")
+        .in("inbox_id", inboxIds);
+      senderOptions = aliases || [];
+    }
+
+    console.log("[OrderComm] Response:", { emailCount: emails.length, resolvedEmail, senderOptionsCount: senderOptions.length });
     res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.json({ emails, customerEmail: resolvedEmail || null });
+    res.json({ emails, customerEmail: resolvedEmail || null, senderOptions });
   } catch (error) {
     console.error("Shopify Order Communication Error:", error);
     res.status(500).json({ error: "Failed to fetch order communication" });
@@ -860,7 +923,7 @@ shopifyRouter.get("/order-communication/templates", async (req, res) => {
 // ---------------------------------------------------------------------------
 
 shopifyRouter.post("/order-communication/send", async (req, res) => {
-  const { shopDomain, subject, to, bodyText, inReplyTo, references } = req.body;
+  const { shopDomain, subject, to, bodyText, inReplyTo, references, fromAddress } = req.body;
   
   if (!shopDomain || !subject || !to || !bodyText) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -882,29 +945,45 @@ shopifyRouter.post("/order-communication/send", async (req, res) => {
 
   try {
     const supabase = getSupabaseAdmin();
+    let inboxId: string;
+    let actualFromAddress = fromAddress;
 
-    // Find the default shared inbox for this team
-    const { data: inboxes } = await supabase
-      .from("inboxes")
-      .select("id")
-      .eq("team_id", teamId)
-      .eq("type", "shared")
-      .limit(1);
+    if (fromAddress) {
+      // Verify the fromAddress belongs to this team
+      const { data: aliasData } = await supabase
+        .from("inbox_aliases")
+        .select("inbox_id, inboxes!inner(team_id)")
+        .eq("email_address", fromAddress)
+        .eq("inboxes.team_id", teamId)
+        .maybeSingle();
 
-    if (!inboxes || inboxes.length === 0) {
-      return res.status(400).json({ error: "No shared inbox configured for this team" });
+      if (!aliasData) {
+        return res.status(403).json({ error: "Sender address not authorized for this team" });
+      }
+      inboxId = aliasData.inbox_id;
+    } else {
+      // Fallback: Find the default shared inbox for this team
+      const { data: inboxes } = await supabase
+        .from("inboxes")
+        .select("id")
+        .eq("team_id", teamId)
+        .eq("type", "shared")
+        .limit(1);
+
+      if (!inboxes || inboxes.length === 0) {
+        return res.status(400).json({ error: "No shared inbox configured for this team" });
+      }
+      
+      inboxId = inboxes[0].id;
+      
+      const { data: aliases } = await supabase
+        .from("inbox_aliases")
+        .select("email_address")
+        .eq("inbox_id", inboxId)
+        .limit(1);
+
+      actualFromAddress = aliases && aliases.length > 0 ? aliases[0].email_address : undefined;
     }
-    
-    const inboxId = inboxes[0].id;
-    
-    // Find the primary alias
-    const { data: aliases } = await supabase
-      .from("inbox_aliases")
-      .select("email_address")
-      .eq("inbox_id", inboxId)
-      .limit(1);
-
-    const fromAddress = aliases && aliases.length > 0 ? aliases[0].email_address : undefined;
 
     await smtpClient.sendEmail({
       inboxId,
@@ -914,7 +993,7 @@ shopifyRouter.post("/order-communication/send", async (req, res) => {
       bodyText,
       inReplyTo,
       references,
-      fromAddress,
+      fromAddress: actualFromAddress,
     });
 
     res.json({ success: true, message: "Email sent successfully" });

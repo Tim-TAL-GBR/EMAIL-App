@@ -2,7 +2,7 @@ import { safeErrorMessage } from "../utils/errors.js";
 import { Router } from "express";
 import { requireAuth } from "../middleware/expressAuth.middleware.js";
 import { getSupabaseAdmin } from "../services/auth.service.js";
-import { canAccessEmail } from "../realtime/guards.js";
+import { canAccessEmail, canAccessInbox } from "../realtime/guards.js";
 import { ImapClient } from "../mail/ImapClient.js";
 import { validateBody } from "../middleware/validate.middleware.js";
 import { z } from "zod";
@@ -35,10 +35,18 @@ emailRouter.post(
         return;
       }
 
-      // Filter to emails the user may access
+      // Cache inbox access checks to avoid N+1 queries
       const allowed: any[] = [];
+      const inboxAccessCache: Record<string, boolean> = {};
+
       for (const email of emails || []) {
-        if (await canAccessEmail(userId, email.id)) allowed.push(email);
+        const inboxId = email.inbox_id;
+        if (inboxAccessCache[inboxId] === undefined) {
+          inboxAccessCache[inboxId] = await canAccessInbox(userId, inboxId);
+        }
+        if (inboxAccessCache[inboxId]) {
+          allowed.push(email);
+        }
       }
 
       if (allowed.length === 0) {

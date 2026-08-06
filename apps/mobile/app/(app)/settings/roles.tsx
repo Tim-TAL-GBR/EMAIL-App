@@ -34,7 +34,9 @@ async function apiRequest(path: string, method = 'GET', body?: object) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const json = await res.json();
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error(res.ok ? `Ungültige Serverantwort` : `Server nicht erreichbar oder fehlerhaft (HTML).`); }
   if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
   return json;
 }

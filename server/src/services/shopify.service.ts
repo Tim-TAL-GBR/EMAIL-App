@@ -80,6 +80,10 @@ export async function syncEmailToShopifyOrders(opts: {
   fromAddress: string;
   snippet: string;
 }) {
+  // Syncing to notes is disabled. We now use the Shopify Admin UI Extension Block 
+  // (teammail-order-block) to dynamically fetch and display emails on the Order page.
+  return;
+  
   try {
     const supabase = getSupabaseAdmin();
     const { data: rawConnection } = await supabase

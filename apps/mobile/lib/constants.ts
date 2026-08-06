@@ -8,6 +8,7 @@
 import { Platform, type TextStyle } from 'react-native';
 
 export const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3001';
+console.log('[constants] API_URL resolved to:', API_URL);
 
 // ─── Color Palette ──────────────────────────────────────────────────────────
 

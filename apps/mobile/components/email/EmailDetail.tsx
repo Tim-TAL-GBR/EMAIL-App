@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { WebView } from 'react-native-webview';
-import { View, Text, StyleSheet, Platform, TouchableOpacity, Linking } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Linking, Modal, Pressable, TextInput } from 'react-native';
 import { format, parseISO } from 'date-fns';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, BorderRadius, Shadows } from '../../lib/constants';
 import { Badge } from '../ui/Badge';
@@ -12,6 +12,8 @@ import { useComposerStore } from '../../stores/composerStore';
 function sanitizeHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    .replace(/<math[\s\S]*?<\/math>/gi, '')
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
     .replace(/<object[\s\S]*?<\/object>/gi, '')
     .replace(/<embed[\s\S]*?\/?>/gi, '')
@@ -61,7 +63,7 @@ interface EmailDetailProps {
 export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange }: EmailDetailProps) {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [isCollapsed, setIsCollapsed] = useState(initiallyCollapsed);
-  const { archiveEmail, deleteEmail } = useEmailStore();
+  const { archiveThread, deleteThread } = useEmailStore();
   const { openComposer } = useComposerStore();
 
   useEffect(() => {
@@ -115,7 +117,6 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
   };
  
   const senderName = parseSenderName(email.from_address);
-  const senderInitials = email.from_address.substring(0, 2).toUpperCase();
   const inboxDisplay = email.to_addresses && email.to_addresses.length > 0 ? email.to_addresses[0] : 'Unbekannt';
   
   const inboxStore = useInboxStore(s => s.inboxes);
@@ -131,6 +132,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
   const [previewVisible, setPreviewVisible] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<any>(null);
   const [webViewHeight, setWebViewHeight] = useState(100);
+  const [senderInfoVisible, setSenderInfoVisible] = useState(false);
 
   const handleAttachmentPress = (attachment: any) => {
     setSelectedAttachment(attachment);
@@ -167,7 +169,14 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
         >
           <Avatar name={senderName} size={40} uri={avatarUri} />
           <View style={styles.headerInfo}>
-            <Text style={styles.senderNameBold}>{senderName}</Text>
+            <Pressable 
+              onPress={(e) => {
+                e.stopPropagation();
+                setSenderInfoVisible(true);
+              }}
+            >
+              <Text style={styles.senderNameBold}>{senderName}</Text>
+            </Pressable>
             <View style={styles.headerSubtitleRow}>
               <Text style={styles.toInfo}>
                 {toDisplay.length > 0 ? `To: ${toDisplay.join(', ')}` : inboxName}
@@ -200,6 +209,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
                 <html>
                 <head>
                   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                  <base target="_blank" />
                   <style>
                     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #333; margin: 0; padding: 0; word-wrap: break-word; }
                     img { max-width: 100%; height: auto; }
@@ -220,6 +230,7 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
                 <html>
                 <head>
                   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                  <base target="_blank" />
                   <style>
                     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #333; margin: 0; padding: 0; word-wrap: break-word; }
                     img { max-width: 100%; height: auto; }
@@ -281,6 +292,47 @@ export function EmailDetail({ email, initiallyCollapsed = false, onStatusChange 
           setSelectedAttachment(null);
         }} 
       />
+
+      <Modal
+        visible={senderInfoVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSenderInfoVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setSenderInfoVisible(false)}>
+          <Pressable style={styles.senderInfoModal}>
+            <Text style={styles.senderInfoTitle}>Absender Informationen</Text>
+            
+            <View style={styles.senderInfoRow}>
+              <Text style={styles.senderInfoLabel}>Name:</Text>
+              <Text style={styles.senderInfoValueInput} selectable={true}>
+                {senderName}
+              </Text>
+            </View>
+            
+            <View style={styles.senderInfoRow}>
+              <Text style={styles.senderInfoLabel}>E-Mail:</Text>
+              <Text style={styles.senderInfoValueInput} selectable={true}>
+                {email.from_address.replace(/^.*?<|>/g, '').trim()}
+              </Text>
+            </View>
+            
+            <View style={styles.senderInfoRow}>
+              <Text style={styles.senderInfoLabel}>Vollständig:</Text>
+              <Text style={styles.senderInfoValueInput} selectable={true}>
+                {email.from_address}
+              </Text>
+            </View>
+
+            <Button 
+              title="Schließen" 
+              onPress={() => setSenderInfoVisible(false)} 
+              variant="secondary"
+              style={{marginTop: Spacing.md}} 
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -479,5 +531,54 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily,
     fontSize: 10,
     color: Colors.textTertiary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  senderInfoModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    width: '100%',
+    maxWidth: 400,
+    ...Platform.select({
+      ios: Shadows.medium,
+      android: { elevation: 5 },
+      web: Shadows.medium,
+    }),
+  },
+  senderInfoTitle: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.text,
+    marginBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+    paddingBottom: Spacing.sm,
+  },
+  senderInfoRow: {
+    marginBottom: Spacing.md,
+  },
+  senderInfoLabel: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    color: Colors.textTertiary,
+    marginBottom: 4,
+  },
+  senderInfoValueInput: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.md,
+    color: Colors.text,
+    backgroundColor: Colors.background,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    width: '100%',
   }
 });

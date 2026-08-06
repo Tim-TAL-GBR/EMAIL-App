@@ -1,6 +1,6 @@
 import { API_URL } from "@/lib/constants";
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform, Linking } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { useTeams } from '../../../hooks/useTeams';
@@ -10,7 +10,7 @@ const INTEGRATIONS = [
 ];
 
 export default function IntegrationsSettingsScreen() {
-  const { teams } = useTeams();
+  const { orgs } = useTeams();
   const [modalVisible, setModalVisible] = useState(false);
   const [activeIntegrations, setActiveIntegrations] = useState<any[]>([]);
   const [shopStatus, setShopStatus] = useState<{ configured: boolean; shops: { shop_domain: string; created_at: string }[] } | null>(null);
@@ -19,13 +19,19 @@ export default function IntegrationsSettingsScreen() {
   const [showConnectInput, setShowConnectInput] = useState(false);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
-  const teamId = selectedTeamId || teams[0]?.id || null;
+  // Shopify Config
+  const [showConfigInput, setShowConfigInput] = useState(false);
+  const [shopifyApiKey, setShopifyApiKey] = useState('');
+  const [shopifyApiSecret, setShopifyApiSecret] = useState('');
+  const [isConfiguringShopify, setIsConfiguringShopify] = useState(false);
+
+  const teamId = selectedTeamId || orgs[0]?.id || null;
 
   useEffect(() => {
-    if (teams.length > 0 && !selectedTeamId) {
-      setSelectedTeamId(teams[0].id);
+    if (orgs.length > 0 && !selectedTeamId) {
+      setSelectedTeamId(orgs[0].id);
     }
-  }, [teams, selectedTeamId]);
+  }, [orgs, selectedTeamId]);
 
   useEffect(() => {
     if (!teamId) return;
@@ -55,14 +61,16 @@ export default function IntegrationsSettingsScreen() {
             const withoutShopify = prev.filter(i => i.name !== 'Shopify');
             return [...withoutShopify, { name: 'Shopify', color: '#96BF48', status: 'Bereit', configured: true }];
           });
+        } else {
+          setActiveIntegrations(prev => prev.filter(i => i.name !== 'Shopify'));
         }
       } catch (e) { console.error('Status fetch failed:', e); }
     })();
   }, [teamId]);
 
   const handleDisconnect = useCallback(async (shopDomain: string) => {
-    const tid = selectedTeamId || teams[0]?.id || null;
-    console.log('[Disconnect] tid:', tid, 'shopDomain:', shopDomain, 'selectedTeamId:', selectedTeamId, 'teams:', teams);
+    const tid = selectedTeamId || orgs[0]?.id || null;
+    console.log('[Disconnect] tid:', tid, 'shopDomain:', shopDomain, 'selectedTeamId:', selectedTeamId, 'orgs:', orgs);
     if (!tid) {
       console.error('Disconnect failed: no teamId');
       Alert.alert('Fehler', 'Kein Team ausgewählt.');
@@ -88,15 +96,26 @@ export default function IntegrationsSettingsScreen() {
     } finally {
       setDisconnecting(null);
     }
-  }, [selectedTeamId, teams]);
+  }, [selectedTeamId, orgs]);
 
   const handleToggleIntegration = useCallback((item: any) => {
     const exists = activeIntegrations.find(i => i.name === item.name);
     if (exists) {
       if (item.name === 'Shopify') {
         if (exists.shopDomain) {
-          const ok = window.confirm(`Möchtest du ${exists.shopDomain} trennen?`);
-          if (ok) handleDisconnect(exists.shopDomain);
+          if (Platform.OS === 'web') {
+            const ok = window.confirm(`Möchtest du ${exists.shopDomain} trennen?`);
+            if (ok) handleDisconnect(exists.shopDomain);
+          } else {
+            Alert.alert(
+              'Trennen',
+              `Möchtest du ${exists.shopDomain} trennen?`,
+              [
+                { text: 'Abbrechen', style: 'cancel' },
+                { text: 'Trennen', style: 'destructive', onPress: () => handleDisconnect(exists.shopDomain) }
+              ]
+            );
+          }
           return;
         }
         setActiveIntegrations(prev => prev.filter(i => i.name !== 'Shopify'));
@@ -107,13 +126,8 @@ export default function IntegrationsSettingsScreen() {
       if (item.name === 'Shopify') {
         if (!teamId) return;
         (async () => {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) return;
           if (!shopStatus?.configured) {
-            Alert.alert(
-              'Shopify nicht konfiguriert',
-              'Ein Team-Admin muss zuerst die Shopify API-Schlüssel in den Team-Einstellungen hinterlegen.'
-            );
+            setShowConfigInput(true);
             return;
           }
           setShowConnectInput(true);
@@ -134,11 +148,40 @@ export default function IntegrationsSettingsScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       const authUrl = `${API_URL}/api/shopify/auth?shop=${encodeURIComponent(shop)}&team_id=${teamId}&token=${encodeURIComponent(session.access_token)}`;
-      window.open(authUrl, '_blank', 'width=800,height=700');
+      if (Platform.OS === 'web') {
+        window.open(authUrl, '_blank', 'width=800,height=700');
+      } else {
+        Linking.openURL(authUrl);
+      }
     } catch (e) { console.error('Connect failed:', e); }
     setShowConnectInput(false);
     setConnectShopDomain('');
   }, [connectShopDomain, teamId]);
+
+  const handleSaveConfig = async () => {
+    if (!teamId || !shopifyApiKey || !shopifyApiSecret) return;
+    setIsConfiguringShopify(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${API_URL}/api/shopify/app-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ teamId, apiKey: shopifyApiKey.trim(), apiSecret: shopifyApiSecret.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      setShopStatus(prev => prev ? { ...prev, configured: true } : { configured: true, shops: [] });
+      setShowConfigInput(false);
+      setShowConnectInput(true); // Automatically show connect input after config
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    } finally {
+      setIsConfiguringShopify(false);
+    }
+  };
 
   const renderModal = () => (
     <View style={styles.modalOverlay}>
@@ -172,8 +215,32 @@ export default function IntegrationsSettingsScreen() {
   );
 
   return (
-    <View style={[styles.container, activeIntegrations.length > 0 && { justifyContent: 'flex-start', alignItems: 'stretch' }]}>
+    <View style={styles.container}>
       {modalVisible && renderModal()}
+
+      {orgs.length > 0 && (
+        <View style={{ padding: Spacing.xl, paddingBottom: 0 }}>
+          <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, fontWeight: 'bold', color: Colors.textSecondary, marginBottom: Spacing.sm }}>
+            Organisation wählen
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+            {orgs.map(org => (
+              <Pressable
+                key={org.id}
+                style={[
+                  { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: 8, marginRight: Spacing.sm, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+                  teamId === org.id && { backgroundColor: Colors.primary, borderColor: Colors.primary }
+                ]}
+                onPress={() => setSelectedTeamId(org.id)}
+              >
+                <Text style={[{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.text }, teamId === org.id && { color: '#FFF', fontWeight: 'bold' }]}>
+                  {org.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {activeIntegrations.length === 0 ? (
         <View style={styles.emptyState}>
@@ -211,8 +278,19 @@ export default function IntegrationsSettingsScreen() {
                   // @ts-ignore - web only pointer event
                   onPointerDown={() => {
                     if (disconnecting === item.shopDomain) return;
-                    const ok = window.confirm(`Möchtest du ${item.shopDomain} trennen?`);
-                    if (ok) handleDisconnect(item.shopDomain);
+                    if (Platform.OS === 'web') {
+                      const ok = window.confirm(`Möchtest du ${item.shopDomain} trennen?`);
+                      if (ok) handleDisconnect(item.shopDomain);
+                    } else {
+                      Alert.alert(
+                        'Trennen',
+                        `Möchtest du ${item.shopDomain} trennen?`,
+                        [
+                          { text: 'Abbrechen', style: 'cancel' },
+                          { text: 'Trennen', style: 'destructive', onPress: () => handleDisconnect(item.shopDomain) }
+                        ]
+                      );
+                    }
                   }}
                   style={{ cursor: 'pointer', padding: Spacing.sm, margin: -Spacing.sm, opacity: disconnecting === item.shopDomain ? 0.5 : 1 }}
                 >
@@ -244,15 +322,67 @@ export default function IntegrationsSettingsScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing.md }}>
+              <Pressable onPress={() => { setShowConnectInput(false); setShowConfigInput(true); }}>
+                <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.info }}>API-Schlüssel ändern</Text>
+              </Pressable>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                <Pressable
+                  style={[styles.addButton, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border }]}
+                  onPress={() => { setShowConnectInput(false); setConnectShopDomain(''); }}
+                >
+                  <Text style={[styles.addButtonText, { color: Colors.text }]}>Abbrechen</Text>
+                </Pressable>
+                <Pressable style={styles.addButton} onPress={handleConnectShop}>
+                  <Text style={styles.addButtonText}>Verbinden</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {showConfigInput && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.connectModal}>
+            <Text style={{ fontFamily: FontFamily, fontSize: FontSize.lg, fontWeight: 'bold', color: Colors.text, marginBottom: Spacing.md }}>
+              Shopify API konfigurieren
+            </Text>
+            <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: Spacing.md }}>
+              Hinterlege hier die Client ID und das Client Secret deiner eigenen Shopify Custom App.
+            </Text>
+            <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.text, marginBottom: Spacing.xs, fontWeight: 'bold' }}>Client ID (API Key)</Text>
+            <TextInput
+              style={[styles.domainInput, { marginBottom: Spacing.md }]}
+              placeholder="z.B. 7c9a..."
+              placeholderTextColor={Colors.textTertiary}
+              value={shopifyApiKey}
+              onChangeText={setShopifyApiKey}
+              autoCapitalize="none"
+            />
+            <Text style={{ fontFamily: FontFamily, fontSize: FontSize.sm, color: Colors.text, marginBottom: Spacing.xs, fontWeight: 'bold' }}>Client Secret</Text>
+            <TextInput
+              style={styles.domainInput}
+              placeholder="z.B. shpss_..."
+              placeholderTextColor={Colors.textTertiary}
+              value={shopifyApiSecret}
+              onChangeText={setShopifyApiSecret}
+              autoCapitalize="none"
+              secureTextEntry
+            />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm, marginTop: Spacing.md }}>
               <Pressable
                 style={[styles.addButton, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border }]}
-                onPress={() => { setShowConnectInput(false); setConnectShopDomain(''); }}
+                onPress={() => { setShowConfigInput(false); }}
               >
                 <Text style={[styles.addButtonText, { color: Colors.text }]}>Abbrechen</Text>
               </Pressable>
-              <Pressable style={styles.addButton} onPress={handleConnectShop}>
-                <Text style={styles.addButtonText}>Verbinden</Text>
+              <Pressable 
+                style={[styles.addButton, (!shopifyApiKey || !shopifyApiSecret || isConfiguringShopify) && { opacity: 0.5 }]} 
+                onPress={handleSaveConfig}
+                disabled={!shopifyApiKey || !shopifyApiSecret || isConfiguringShopify}
+              >
+                <Text style={styles.addButtonText}>{isConfiguringShopify ? 'Speichern...' : 'Speichern'}</Text>
               </Pressable>
             </View>
           </View>
@@ -266,8 +396,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
   },
   activeListScroll: {
     flex: 1,
@@ -296,6 +426,8 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.borderLight,
   },
   emptyState: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   emptyIconBox: {

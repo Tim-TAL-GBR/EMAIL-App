@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     height: 10,
     borderBottomWidth: 2,
     borderRightWidth: 2,
-    borderColor: Colors.textMuted,
+    borderColor: Colors.textTertiary,
     borderBottomRightRadius: 2,
   },
 });

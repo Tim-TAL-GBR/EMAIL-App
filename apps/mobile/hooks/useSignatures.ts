@@ -44,13 +44,16 @@ export function useSignatures() {
   useEffect(() => {
     fetchSignatures();
 
-    const existingChannel = supabase.getChannels().find(c => c.topic === 'realtime:signatures');
+    const channelId = Math.random().toString(36).slice(2);
+    const channelName = `signatures-${channelId}`;
+
+    const existingChannel = supabase.getChannels().find(c => c.topic === `realtime:${channelName}`);
     if (existingChannel) {
       supabase.removeChannel(existingChannel);
     }
 
     const subscription = supabase
-      .channel('signatures')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'signatures' }, () => {
         fetchSignatures();
       })

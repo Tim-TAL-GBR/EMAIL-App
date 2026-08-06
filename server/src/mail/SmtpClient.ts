@@ -19,13 +19,14 @@ interface SendEmailParams {
   attachments?: any[];
   fromAddress?: string;
   status?: "open" | "done" | "in_progress";
+  threadId?: string;
 }
 
 export class SmtpClient {
   /**
    * Send an email using the SMTP credentials configured for a specific inbox.
    */
-  public async sendEmail(params: SendEmailParams): Promise<void> {
+  public async sendEmail(params: SendEmailParams): Promise<any> {
     const supabase = getSupabaseAdmin();
 
     // 1. Fetch inbox credentials
@@ -147,6 +148,11 @@ export class SmtpClient {
         threadId = cleanInReplyTo;
       }
     }
+    
+    // Override with explicit threadId if provided
+    if (params.threadId) {
+      threadId = params.threadId;
+    }
 
     // 4. Save to database as outbound
     const { data: newEmail, error: insertError } = await supabase.from("emails").insert({
@@ -166,8 +172,10 @@ export class SmtpClient {
       is_read: true,
       is_starred: false,
       is_deleted: false,
+      is_archived: false,
       mailbox_name: "Sent",
-    }).select("id").single();
+      received_at: new Date().toISOString(),
+    }).select("*").single();
 
     if (insertError) {
       console.error(`[SmtpClient] Failed to save outbound email to DB:`, insertError);
@@ -198,6 +206,8 @@ export class SmtpClient {
         snippet: params.bodyText,
       });
     }
+
+    return newEmail;
   }
 }
 

@@ -434,6 +434,70 @@ inboxRouter.get("/:inboxId/folders", async (req, res) => {
   }
 });
 
+inboxRouter.post("/:inboxId/folders", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const { inboxId } = req.params;
+    const { name } = req.body;
+
+    if (!name?.trim()) {
+      res.status(400).json({ error: "Ordnername ist erforderlich" });
+      return;
+    }
+
+    const hasAccess = await canAccessInbox(userId, inboxId);
+    if (!hasAccess) {
+      res.status(403).json({ error: "No access to this inbox" });
+      return;
+    }
+
+    const { mailManager } = await import("../mail/MailManager.js");
+    const client = mailManager.getClient(inboxId);
+    if (!client) {
+      res.status(404).json({ error: "Inbox client not found. Bitte postfach neu verbinden." });
+      return;
+    }
+
+    const path = await client.createFolder(name.trim());
+    res.json({ success: true, path });
+  } catch (err: any) {
+    console.error("[InboxRoutes] POST /:inboxId/folders error:", err);
+    res.status(500).json({ error: safeErrorMessage(err) || "Fehler beim Erstellen des IMAP-Ordners" });
+  }
+});
+
+inboxRouter.delete("/:inboxId/folders", async (req, res) => {
+  try {
+    const userId = req.user!.sub;
+    const { inboxId } = req.params;
+    const { path } = req.body;
+
+    if (!path) {
+      res.status(400).json({ error: "Ordnerpfad ist erforderlich" });
+      return;
+    }
+
+    const hasAccess = await canAccessInbox(userId, inboxId);
+    if (!hasAccess) {
+      res.status(403).json({ error: "No access to this inbox" });
+      return;
+    }
+
+    const { mailManager } = await import("../mail/MailManager.js");
+    const client = mailManager.getClient(inboxId);
+    if (!client) {
+      res.status(404).json({ error: "Inbox client not found. Bitte postfach neu verbinden." });
+      return;
+    }
+
+    await client.deleteFolder(path);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("[InboxRoutes] DELETE /:inboxId/folders error:", err);
+    res.status(500).json({ error: safeErrorMessage(err) || "Fehler beim Löschen des IMAP-Ordners" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/inboxes/:inboxId/members/invite – Invite a user by email
 // ---------------------------------------------------------------------------

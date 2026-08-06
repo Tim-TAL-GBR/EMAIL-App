@@ -72,7 +72,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   const { openComposer } = useComposerStore();
 
   const { labels, addLabelToEmail } = useLabelStore();
-  const { updateEmailStatus, toggleStar, deleteEmail, markAsRead, togglePinThread, pinnedThreads } = useEmailStore();
+  const { updateEmailStatus, toggleStar, deleteThread, markAsRead, togglePinThread, pinnedThreads } = useEmailStore();
 
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [contextMenuRect, setContextMenuRect] = useState<LayoutRectangle>();
@@ -182,8 +182,9 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   };
 
   const filteredThreads = React.useMemo(() => {
+    const now = new Date();
     return (threads ?? []).filter(t => {
-    if (t.latestEmail.snooze_until && new Date(t.latestEmail.snooze_until) > new Date()) {
+    if (t.latestEmail.snooze_until && new Date(t.latestEmail.snooze_until) > now) {
       return false;
     }
 
@@ -361,20 +362,32 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
   };
 
   // Group threads
-  const getSectionTitle = (dateStr: string | undefined) => {
+  const getSectionTitle = useCallback((dateStr: string | undefined) => {
     if (!dateStr) return 'Older';
     const dateObj = parseISO(dateStr);
     if (isToday(dateObj)) return 'Today';
     if (isYesterday(dateObj)) return 'Yesterday';
     return format(dateObj, 'MMMM');
-  };
+  }, []);
 
   const sections = React.useMemo(() => {
     if (activeFilter === 'drafts') {
       return [{ title: 'Drafts', data: drafts || [] }];
     }
+    
+    const titleCache: Record<string, string> = {};
+    
     const grouped = filteredThreads.reduce((acc, thread) => {
-      const title = getSectionTitle(thread.latestEmail?.received_at);
+      const dateStr = thread.latestEmail?.received_at;
+      let title = 'Older';
+      if (dateStr) {
+        const cacheKey = dateStr.split('T')[0] || dateStr;
+        if (!titleCache[cacheKey]) {
+          titleCache[cacheKey] = getSectionTitle(dateStr);
+        }
+        title = titleCache[cacheKey];
+      }
+      
       if (!acc[title]) acc[title] = [];
       acc[title].push(thread);
       return acc;
@@ -384,7 +397,7 @@ export function InboxList({ isDesktop = false }: InboxListProps) {
       title,
       data: grouped[title]
     }));
-  }, [filteredThreads, drafts, activeFilter]);
+  }, [filteredThreads, drafts, activeFilter, getSectionTitle]);
 
   const renderItem = useCallback(({ item }: any) => {
     if (activeFilter === 'drafts') {

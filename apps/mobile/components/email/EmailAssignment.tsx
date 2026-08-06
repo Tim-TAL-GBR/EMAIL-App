@@ -4,6 +4,7 @@ import { Colors, Spacing, BorderRadius, FontFamily, FontSize, FontWeight } from 
 import { Avatar } from '../ui/Avatar';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
+import { useInboxStore } from '../../stores/inboxStore';
 import { Feather } from '@expo/vector-icons';
 
 interface TeamMember {
@@ -46,12 +47,28 @@ export function EmailAssignment({ emailId, inboxId, currentAssignee, onAssign, o
 
   const loadMembers = async () => {
     setIsLoading(true);
-    const { data: memberData, error } = await supabase
-      .from('inbox_members')
-      .select('user_id, role')
-      .eq('inbox_id', inboxId);
+    
+    // First determine the team/organization for this inbox
+    const inbox = useInboxStore.getState().getInboxById(inboxId);
+    let memberData: any[] = [];
+    
+    if (inbox?.team?.id) {
+      // Fetch all members of the organization
+      const { data } = await supabase
+        .from('team_members')
+        .select('user_id, role')
+        .eq('team_id', inbox.team.id);
+      if (data) memberData = data;
+    } else {
+      // Fallback to inbox members if no team is associated
+      const { data } = await supabase
+        .from('inbox_members')
+        .select('user_id, role')
+        .eq('inbox_id', inboxId);
+      if (data) memberData = data;
+    }
       
-    if (error || !memberData) {
+    if (!memberData || memberData.length === 0) {
       setIsLoading(false);
       return;
     }
@@ -114,7 +131,8 @@ export function EmailAssignment({ emailId, inboxId, currentAssignee, onAssign, o
         <Feather name="chevron-down" size={12} color={Colors.textSecondary} style={{ marginLeft: 2 }} />
       </TouchableOpacity>
 
-      <Modal visible={showPicker} animationType="slide" presentationStyle="pageSheet" transparent onRequestClose={closePicker}>
+      {/* AI WARNING: DO NOT ADD presentationStyle="pageSheet" or "formSheet" here. Using it with transparent={true} causes EXC_BAD_ACCESS native crashes on macOS Catalyst! */}
+      <Modal visible={showPicker} animationType="slide" transparent onRequestClose={closePicker}>
         <View style={styles.overlay}>
           <View style={styles.pickerContainer}>
             <View style={styles.pickerHeader}>

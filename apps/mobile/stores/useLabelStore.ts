@@ -74,9 +74,12 @@ export const useLabelStore = create<LabelState>((set, get) => ({
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to add label');
       return { error: null };
     } catch (error: any) {
-      console.warn('[LabelStore] addLabelToEmail error, falling back to direct Supabase:', error.message);
-      const { error: sbError } = await supabase.from('email_labels').insert({ email_id: emailId, label_id: labelId });
-      return { error: sbError || error };
+      if (error.message?.toLowerCase().includes('network') || error.message?.toLowerCase().includes('fetch') || error instanceof TypeError) {
+        console.warn('[LabelStore] addLabelToEmail error, falling back to direct Supabase:', error.message);
+        const { error: sbError } = await supabase.from('email_labels').insert({ email_id: emailId, label_id: labelId });
+        return { error: sbError || error };
+      }
+      return { error };
     }
   },
 
@@ -91,9 +94,12 @@ export const useLabelStore = create<LabelState>((set, get) => ({
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to remove label');
       return { error: null };
     } catch (error: any) {
-      console.warn('[LabelStore] removeLabelFromEmail error, falling back to direct Supabase:', error.message);
-      const { error: sbError } = await supabase.from('email_labels').delete().match({ email_id: emailId, label_id: labelId });
-      return { error: sbError || error };
+      if (error.message?.toLowerCase().includes('network') || error.message?.toLowerCase().includes('fetch') || error instanceof TypeError) {
+        console.warn('[LabelStore] removeLabelFromEmail error, falling back to direct Supabase:', error.message);
+        const { error: sbError } = await supabase.from('email_labels').delete().match({ email_id: emailId, label_id: labelId });
+        return { error: sbError || error };
+      }
+      return { error };
     }
   }
 }));

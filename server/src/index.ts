@@ -59,7 +59,7 @@ app.use(cors({
     if (!origin || allowedOrigins.some(o => origin.endsWith(o.replace('https://', ''))) || origin.includes('.myshopify.com')) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow in dev; tighten in production if needed
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
@@ -125,7 +125,7 @@ let taskNotificationInterval: NodeJS.Timeout | undefined;
 let dailyResetTimeout: NodeJS.Timeout | undefined;
 let dailyResetInterval: NodeJS.Timeout | undefined;
 
-server.listen(PORT, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`[server] TeamMail realtime server listening on port ${PORT}`);
   
   // Run workers and initializers
@@ -137,7 +137,10 @@ server.listen(PORT, async () => {
     try {
       const res = await fetch(`http://localhost:${PORT}/api/task-notifications/check`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-cron-secret': process.env.CRON_SECRET || ''
+        },
       });
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
@@ -161,7 +164,10 @@ server.listen(PORT, async () => {
       try {
         const res = await fetch(`http://localhost:${PORT}/api/task-notifications/reset-daily`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-cron-secret': process.env.CRON_SECRET || ''
+          },
         });
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         console.log('[TaskNotifications] Daily notification reset completed');

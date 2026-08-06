@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native
 import { supabase } from '../../lib/supabase';
 import { Colors, Spacing, FontFamily, BorderRadius, Shadows } from '../../lib/constants';
 import { Avatar } from '../ui/Avatar';
+import { useInboxStore } from '../../stores/inboxStore';
 
 interface Profile {
   id: string;
@@ -15,9 +16,10 @@ interface MentionPickerProps {
   query: string;
   onSelect: (user: Profile) => void;
   visible: boolean;
+  inboxId: string;
 }
 
-export function MentionPicker({ query, onSelect, visible }: MentionPickerProps) {
+export function MentionPicker({ query, onSelect, visible, inboxId }: MentionPickerProps) {
   const [users, setUsers] = useState<Profile[]>([]);
 
   useEffect(() => {
@@ -27,8 +29,25 @@ export function MentionPicker({ query, onSelect, visible }: MentionPickerProps) 
   }, [visible, query]);
 
   const fetchUsers = async () => {
-    // In a real app we'd fetch only team members. For now, all profiles.
     let q = supabase.from('profiles').select('*');
+    
+    // Filter by organization if the inbox belongs to one
+    const inbox = useInboxStore.getState().getInboxById(inboxId);
+    if (inbox?.team?.id) {
+      const { data: members } = await supabase
+        .from('team_members')
+        .select('user_id')
+        .eq('team_id', inbox.team.id);
+        
+      if (members && members.length > 0) {
+        const userIds = members.map(m => m.user_id);
+        q = q.in('id', userIds);
+      } else {
+        // If team has no members (shouldn't happen), return empty
+        setUsers([]);
+        return;
+      }
+    }
     
     if (query) {
       q = q.or(`display_name.ilike.%${query}%,email.ilike.%${query}%`);

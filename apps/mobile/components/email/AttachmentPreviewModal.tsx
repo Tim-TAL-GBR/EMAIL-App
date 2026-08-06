@@ -87,6 +87,12 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
 
   const isImage = attachment.content_type.startsWith('image/');
   const isPdf = attachment.content_type === 'application/pdf';
+  
+  const isWord = attachment.content_type === 'application/msword' || attachment.content_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const isExcel = attachment.content_type === 'application/vnd.ms-excel' || attachment.content_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const isPowerPoint = attachment.content_type === 'application/vnd.ms-powerpoint' || attachment.content_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  const isOffice = isWord || isExcel || isPowerPoint;
+
   const isWeb = Platform.OS === 'web';
 
   return (
@@ -128,7 +134,17 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
             </View>
           )}
 
-          {!loading && signedUrl && isPdf && !isWeb && (
+          {!loading && signedUrl && isOffice && isWeb && (
+            <View style={styles.pdfContainer}>
+              <iframe 
+                src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(signedUrl)}`} 
+                style={{ width: '100%', height: '100%', border: 'none' }} 
+                title="Office Preview"
+              />
+            </View>
+          )}
+
+          {!loading && signedUrl && (isPdf || isOffice) && !isWeb && (
             <View style={styles.pdfContainer}>
               <WebView 
                 source={{ uri: signedUrl }} 
@@ -137,7 +153,7 @@ export function AttachmentPreviewModal({ visible, attachment, onClose }: Attachm
             </View>
           )}
 
-          {!loading && signedUrl && !isImage && !isPdf && (
+          {!loading && signedUrl && !isImage && !isPdf && !isOffice && (
             <View style={styles.fallbackContainer}>
               <Feather name="file" size={64} color="#CCC" />
               <Text style={styles.fallbackText}>Keine Vorschau verfügbar</Text>

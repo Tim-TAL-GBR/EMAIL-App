@@ -1,12 +1,12 @@
 import express, { Router } from "express";
 import Stripe from "stripe";
-import { supabaseServiceRole } from "../lib/supabase.js";
+import { getSupabaseAdmin } from "../services/auth.service.js";
 import { mailManager } from "../mail/MailManager.js";
 
-export const stripeWebhookRouter = Router();
+export const stripeWebhookRouter: Router = Router();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2024-06-20',
+  apiVersion: '2024-06-20' as any,
 });
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET as string;
@@ -30,7 +30,7 @@ stripeWebhookRouter.post("/", express.raw({ type: 'application/json' }), async (
         const session = event.data.object as Stripe.Checkout.Session;
         const orgId = session.client_reference_id;
         if (orgId) {
-          await supabaseServiceRole
+          await getSupabaseAdmin()
             .from('subscriptions')
             .upsert({
               org_id: orgId,
@@ -50,18 +50,18 @@ stripeWebhookRouter.post("/", express.raw({ type: 'application/json' }), async (
         const subscription = event.data.object as Stripe.Subscription;
         
         // Find org by customer ID
-        const { data: orgSub } = await supabaseServiceRole
+        const { data: orgSub } = await getSupabaseAdmin()
           .from('subscriptions')
           .select('org_id')
           .eq('stripe_customer_id', subscription.customer as string)
           .single();
 
         if (orgSub) {
-          await supabaseServiceRole
+          await getSupabaseAdmin()
             .from('subscriptions')
             .update({
               status: subscription.status,
-              current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+              current_period_end: new Date((subscription as any).current_period_end * 1000).toISOString(),
               cancel_at_period_end: subscription.cancel_at_period_end,
               stripe_subscription_id: subscription.id
             })
@@ -80,14 +80,14 @@ stripeWebhookRouter.post("/", express.raw({ type: 'application/json' }), async (
       case 'invoice.paid': {
         const invoice = event.data.object as Stripe.Invoice;
         
-        const { data: orgSub } = await supabaseServiceRole
+        const { data: orgSub } = await getSupabaseAdmin()
           .from('subscriptions')
           .select('org_id')
           .eq('stripe_customer_id', invoice.customer as string)
           .single();
 
         if (orgSub) {
-          await supabaseServiceRole
+          await getSupabaseAdmin()
             .from('billing_history')
             .insert({
               org_id: orgSub.org_id,

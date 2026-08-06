@@ -360,9 +360,13 @@ teamRouter.post("/:id/members/create", async (req, res) => {
       return;
     }
 
-    // The handle_new_user trigger in the database will create the profile automatically.
-    // Wait briefly for the trigger to complete to ensure the profile exists, or just insert into team_members (it cascade-links via auth.users -> profiles).
-    
+    // Ensure the profile exists (in case the trigger is delayed due to race condition)
+    await supabase.from("profiles").upsert({
+      id: authData.user.id,
+      email: authData.user.email || email,
+      display_name: name || null
+    }, { onConflict: "id" });
+
     // Add member
     const { error: teamError } = await supabase
       .from("team_members")
@@ -659,6 +663,11 @@ teamRouter.delete("/:id", async (req, res) => {
 // ---------------------------------------------------------------------------
 teamRouter.get("/unassigned-users", async (req, res) => {
   try {
+    const { isSuperAdmin } = await import("../middleware/permissions.middleware.js");
+    if (!(await isSuperAdmin(req.user!.sub))) {
+      return res.status(403).json({ error: "Keine Berechtigung" });
+    }
+
     const supabase = getSupabaseAdmin();
 
     const { data: allProfiles, error: profileErr } = await supabase
@@ -766,6 +775,11 @@ teamRouter.get("/:id/available-users", async (req, res) => {
 // ---------------------------------------------------------------------------
 teamRouter.delete("/unassigned-users/:userId", async (req, res) => {
   try {
+    const { isSuperAdmin } = await import("../middleware/permissions.middleware.js");
+    if (!(await isSuperAdmin(req.user!.sub))) {
+      return res.status(403).json({ error: "Keine Berechtigung" });
+    }
+
     const { userId } = req.params;
     const supabase = getSupabaseAdmin();
 

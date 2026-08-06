@@ -269,7 +269,13 @@ export function ShopifyCustomerCard({ email, teamId, detectedOrderNumber, onResu
   }
 
   if (!data || !data.customer) {
-    return null; 
+    return (
+      <View style={[styles.card, { alignItems: 'center', justifyContent: 'center', padding: Spacing.xl }]}>
+        <Text style={{ fontFamily: FontFamily, fontSize: FontSize.md, color: Colors.textSecondary, textAlign: 'center' }}>
+          Kein Shopify-Kunde mit dieser E-Mail-Adresse gefunden.
+        </Text>
+      </View>
+    );
   }
 
   const customer = data.customer;

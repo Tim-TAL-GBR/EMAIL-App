@@ -13,7 +13,12 @@ export const taskNotificationRouter: Router = Router();
  * Should be called periodically (e.g. every 15 minutes) by an external cron
  * or by the server itself via setInterval.
  */
-taskNotificationRouter.post("/check", async (_req, res) => {
+taskNotificationRouter.post("/check", async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || req.headers['x-cron-secret'] !== cronSecret) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const supabase = getSupabaseAdmin();
     const now = new Date();
@@ -107,7 +112,12 @@ taskNotificationRouter.post("/check", async (_req, res) => {
  * Resets notification_sent for all open tasks so they can be notified again.
  * Should be called once daily (e.g. at midnight).
  */
-taskNotificationRouter.post("/reset-daily", async (_req, res) => {
+taskNotificationRouter.post("/reset-daily", async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || req.headers['x-cron-secret'] !== cronSecret) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const supabase = getSupabaseAdmin();
     const { error } = await supabase

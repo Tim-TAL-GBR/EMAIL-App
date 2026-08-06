@@ -42,7 +42,7 @@ function formatSender(alias: { email_address: string; name?: string }, defaultNa
 }
 
 function isValidEmail(v: string) {
-  return EMAIL_REGEX.test(v.trim());
+  return EMAIL_REGEX.test(extractEmail(v));
 }
 
 function parseEmailList(str: string) {
@@ -111,6 +111,34 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  const [fetchedSourceBody, setFetchedSourceBody] = useState<string | null>(null);
+  
+  useEffect(() => {
+    let cancelled = false;
+    if (visible && sourceEmail?.id && !sourceEmail.body_text && !sourceEmail.body_html && (mode === 'reply' || mode === 'forward')) {
+      (async () => {
+        const { data } = await supabase.from('emails').select('body_text, body_html').eq('id', sourceEmail.id).single();
+        if (cancelled) return;
+        if (data) {
+          if (data.body_text) {
+            setFetchedSourceBody(data.body_text);
+          } else if (data.body_html) {
+            const safeHtml = data.body_html.length > 50000 ? data.body_html.substring(0, 50000) + '\n[...truncated]' : data.body_html;
+            const stripped = safeHtml.replace(/<br\s*[\/]?>/gi, '\n').replace(/<p[^>]*>/gi, '\n\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ').trim();
+            setFetchedSourceBody(stripped);
+          } else {
+            setFetchedSourceBody('');
+          }
+        } else {
+          setFetchedSourceBody('');
+        }
+      })();
+    } else {
+      setFetchedSourceBody(null);
+    }
+    return () => { cancelled = true; };
+  }, [visible, sourceEmail?.id, mode]);
+
   // Reset form state immediately when sourceEmail/mode changes (catches all edge cases)
   const resetKey = `${sourceEmail?.id || 'none'}-${mode}`;
   const prevResetKey = useRef<string | null>(null);
@@ -177,13 +205,17 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
     return parts.join(', ');
   }
 
-  const originalBody = sourceEmail?.body_text || '';
+  const originalBody = fetchedSourceBody !== null 
+    ? fetchedSourceBody 
+    : (sourceEmail?.body_text || (sourceEmail?.body_html ? (sourceEmail.body_html.length > 50000 ? sourceEmail.body_html.substring(0, 50000) + '\n[...truncated]' : sourceEmail.body_html).replace(/<br\s*[\/]?>/gi, '\n').replace(/<p[^>]*>/gi, '\n\n').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ').trim() : ''));
   const quotedBody = useMemo(() => originalBody.split('\n').map(line => `> ${line}`).join('\n'), [originalBody]);
   const initialBody = (mode === 'reply' || mode === 'forward') ? `\n\n${quotedBody}` : '';
 
+  const isBodyReady = mode === 'new' || !!sourceEmail?.body_text || !!sourceEmail?.body_html || fetchedSourceBody !== null;
+
   // Pre-fill subject/to when opening or switching emails
   useEffect(() => {
-    if (!draftToResume && !draft) {
+    if (!draftToResume && !draft && isBodyReady) {
       footerApplied.current = false;
       setTo(mode === 'reply'
         ? extractEmail(sourceEmail?.direction === 'outbound' && sourceEmail?.to_addresses?.length
@@ -198,10 +230,10 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         mode === 'forward' ? `Fwd: ${sourceEmail?.subject}` : ''
       );
       setBody(initialBody);
-      setAttachments([]);
+      setAttachments(mode === 'forward' && sourceEmail ? (sourceEmail.email_attachments || sourceEmail.attachments || []) : []);
       setUploadProgress({});
     }
-  }, [visible, sourceEmail?.id, mode, draftToResume?.id]);
+  }, [visible, sourceEmail?.id, mode, draftToResume?.id, isBodyReady, initialBody]);
 
   // Load draft data
   useEffect(() => {
@@ -346,19 +378,30 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   }, [visible]);
 
   // Auto-save with indicator
+  const saveAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (draftLoading || !visible) return;
     const timer = setTimeout(async () => {
       if (to || cc || bcc || subject || (body && body !== initialBody)) {
         setSaveStatus('saving');
-        await saveDraft({
-          to_addresses: parseEmailList(to),
-          cc_addresses: parseEmailList(cc),
-          subject,
-          body_text: body,
-          in_reply_to: mode === 'reply' ? sourceEmail?.message_id : undefined,
-        });
-        setSaveStatus('saved');
+        
+        saveAbortRef.current?.abort();
+        saveAbortRef.current = new AbortController();
+        
+        try {
+          await saveDraft({
+            to_addresses: parseEmailList(to),
+            cc_addresses: parseEmailList(cc),
+            subject,
+            body_text: body,
+            in_reply_to: mode === 'reply' ? sourceEmail?.message_id : undefined,
+          }, { signal: saveAbortRef.current.signal } as any);
+          setSaveStatus('saved');
+        } catch (e: any) {
+          if (e.name === 'AbortError') return;
+          console.error(e);
+        }
       }
     }, 2000);
     return () => clearTimeout(timer);
@@ -400,15 +443,15 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
 
       if (result.canceled || !result.assets?.length) return;
 
-      const tooBig = result.assets.filter(a => (a.size || 0) > MAX_ATTACHMENT_SIZE);
+      const tooBig = result.assets.filter(a => a.size == null || a.size > MAX_ATTACHMENT_SIZE);
       if (tooBig.length > 0) {
         Alert.alert(
-          'Datei zu groß',
-          `${tooBig.map(a => a.name).join(', ')} überschreitet das Limit von 25 MB.`
+          'Dateien ignoriert',
+          `Folgende Dateien wurden entfernt (zu groß oder unbekannte Größe): ${tooBig.map(a => a.name).join(', ')}`
         );
       }
 
-      const validAssets = result.assets.filter(a => (a.size || 0) <= MAX_ATTACHMENT_SIZE);
+      const validAssets = result.assets.filter(a => a.size != null && a.size <= MAX_ATTACHMENT_SIZE);
       if (validAssets.length === 0) return;
 
       setIsUploading(true);
@@ -599,6 +642,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         bodyText: body,
         inReplyTo: mode === 'reply' ? sourceEmail?.message_id : undefined,
         references: mode === 'reply' ? sourceEmail?.message_id : undefined,
+        threadId: sourceEmail?.thread_id || sourceEmail?.message_id || sourceEmail?.id,
         attachments,
         fromAddress: senderAddress || undefined,
         status: action === 'send' ? 'open' : 'done',
@@ -613,12 +657,21 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
         body: JSON.stringify(payload),
       });
 
+      const responseJson = await response.json();
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Fehler beim Senden');
+        throw new Error(responseJson.error || 'Fehler beim Senden');
       }
 
       const emailStore = useEmailStore.getState();
+      
+      // Instantly add the sent email to the local store for immediate UI update
+      if (responseJson.email) {
+        // Synthesize received_at if not present from DB
+        if (!responseJson.email.received_at) {
+          responseJson.email.received_at = new Date().toISOString();
+        }
+        emailStore.addEmail(responseJson.email);
+      }
       if (sourceEmail) {
         if (action === 'send_and_close') {
           await emailStore.updateEmailStatus(sourceEmail.id, 'done');
@@ -1076,7 +1129,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
             {composerContent}
           </View>
           <View style={styles.desktopRight}>
-            {sourceEmail ? (
+            {sourceEmail && !draftToResume ? (
               <ChatFeed
                 emailId={sourceEmail.id}
                 emails={[sourceEmail]}
@@ -1103,7 +1156,7 @@ export function EmailComposer({ visible, onClose, mode, sourceEmail, inboxId, dr
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+    <Modal visible={visible} animationType="slide" presentationStyle={Platform.OS === 'web' ? 'pageSheet' : 'fullScreen'}>
       {composerContent}
       {senderPickerModal}
       {templatePickerModal}

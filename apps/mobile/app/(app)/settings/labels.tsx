@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useLabels } from '../../../hooks/useLabels';
+import { useEmailLabels } from '../../../hooks/useEmailLabels';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
 import { useInboxes } from '../../../hooks/useInboxes';
@@ -14,6 +16,74 @@ export default function LabelsSettingsScreen() {
   }, [inboxes]);
 
   const [selectedItem, setSelectedItem] = useState<string>('org');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newLabelName, setNewLabelName] = useState('');
+  const [newLabelColor, setNewLabelColor] = useState('#00B388');
+  const [isCreating, setIsCreating] = useState(false);
+
+  const activeEmailInboxId = React.useMemo(() => {
+    if (selectedItem.startsWith('email_')) return selectedItem.replace('email_', '');
+    return null;
+  }, [selectedItem]);
+
+  const { folders: emailLabels, createFolder, deleteFolder, isLoading: emailLabelsLoading } = useEmailLabels(activeEmailInboxId);
+
+  const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    setIsCreatingFolder(true);
+    try {
+      await createFolder(newFolderName.trim());
+      setShowCreateFolderModal(false);
+      setNewFolderName('');
+    } catch (e) {
+      // Error handled in hook
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
+
+  const handleDeleteFolder = (folderPath: string, name: string) => {
+    Alert.alert('Ordner löschen', `Möchten Sie den E-Mail-Ordner "${name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`, [
+      { text: 'Abbrechen', style: 'cancel' },
+      { text: 'Löschen', style: 'destructive', onPress: () => deleteFolder(folderPath) }
+    ]);
+  };
+
+  const teamId = React.useMemo(() => {
+    for (const i of inboxes) {
+      if (i.team?.id) return i.team.id;
+    }
+    return null;
+  }, [inboxes]);
+
+  const { labels: orgLabels, fetchLabels, createLabel, deleteLabel } = useLabels(teamId);
+  React.useEffect(() => { fetchLabels(); }, [fetchLabels]);
+
+  const handleCreateLabel = async () => {
+    if (!newLabelName.trim()) return;
+    setIsCreating(true);
+    try {
+      await createLabel(newLabelName.trim(), newLabelColor);
+      setShowCreateModal(false);
+      setNewLabelName('');
+      setNewLabelColor('#00B388');
+    } catch (e) {
+      // Error handled in hook
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleDeleteLabel = (id: string, name: string) => {
+    Alert.alert('Label löschen', `Möchten Sie das Label "${name}" wirklich löschen?`, [
+      { text: 'Abbrechen', style: 'cancel' },
+      { text: 'Löschen', style: 'destructive', onPress: () => deleteLabel(id) }
+    ]);
+  };
 
   const renderOrgContent = () => (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
@@ -35,7 +105,7 @@ export default function LabelsSettingsScreen() {
           <TouchableOpacity style={styles.headerIconButton}>
             <Text style={styles.headerIconButtonText}>›</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.addButtonSecondary}>
+          <TouchableOpacity style={styles.addButtonSecondary} onPress={() => setShowCreateModal(true)}>
             <Text style={styles.addButtonSecondaryText}>⊕ Label erstellen</Text>
           </TouchableOpacity>
         </View>
@@ -48,53 +118,27 @@ export default function LabelsSettingsScreen() {
           <Text style={[styles.tableHeaderText, { width: 40 }]}></Text>
         </View>
         
-        <View style={styles.tableRow}>
-          <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={[styles.tagIcon, { color: '#00B388' }]}>🏷</Text>
-            <Text style={styles.tableCellText}>Agenda hochgeladen</Text>
+        {orgLabels.length === 0 ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ color: Colors.textTertiary }}>Keine Labels vorhanden</Text>
           </View>
-          <View style={{ width: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
-          </View>
-          <View style={{ width: 40, alignItems: 'center' }}>
-            <TouchableOpacity><Text style={styles.moreIcon}>⋯</Text></TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.tableRow}>
-          <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={[styles.tagIcon, { color: '#008000' }]}>🏷</Text>
-            <Text style={styles.tableCellText}>bearbeitet</Text>
-          </View>
-          <View style={{ width: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
-            <View style={[styles.userAvatar, { backgroundColor: '#00B388', zIndex: 2 }]}>
-              <Text style={styles.userAvatarText}>TR</Text>
+        ) : (
+          orgLabels.map(label => (
+            <View key={label.id} style={styles.tableRow}>
+              <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={[styles.tagIcon, { color: label.color || '#666' }]}>🏷</Text>
+                <Text style={styles.tableCellText}>{label.name}</Text>
+              </View>
+              <View style={{ width: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
+              </View>
+              <View style={{ width: 40, alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => handleDeleteLabel(label.id, label.name)}>
+                  <Text style={styles.moreIcon}>⋯</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={[styles.userAvatar, { backgroundColor: '#7B68EE', marginLeft: -8, zIndex: 1 }]}>
-              <Text style={styles.userAvatarText}>PK</Text>
-            </View>
-          </View>
-          <View style={{ width: 40, alignItems: 'center' }}>
-            <TouchableOpacity><Text style={styles.moreIcon}>⋯</Text></TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.tableRow}>
-          <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={[styles.tagIcon, { color: '#1E90FF' }]}>🏷</Text>
-            <Text style={styles.tableCellText}>Rechnung</Text>
-          </View>
-          <View style={{ width: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
-            <View style={[styles.userAvatar, { backgroundColor: '#00B388', zIndex: 2 }]}>
-              <Text style={styles.userAvatarText}>TR</Text>
-            </View>
-            <View style={[styles.userAvatar, { backgroundColor: '#7B68EE', marginLeft: -8, zIndex: 1 }]}>
-              <Text style={styles.userAvatarText}>PK</Text>
-            </View>
-          </View>
-          <View style={{ width: 40, alignItems: 'center' }}>
-            <TouchableOpacity><Text style={styles.moreIcon}>⋯</Text></TouchableOpacity>
-          </View>
-        </View>
+          ))
+        )}
       </View>
     </ScrollView>
   );
@@ -121,7 +165,7 @@ export default function LabelsSettingsScreen() {
           <TouchableOpacity style={styles.headerIconButton}>
             <Text style={styles.headerIconButtonText}>›</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.addButtonSecondary}>
+          <TouchableOpacity style={styles.addButtonSecondary} onPress={() => setShowCreateFolderModal(true)}>
             <Text style={styles.addButtonSecondaryText}>⊕ Label erstellen</Text>
           </TouchableOpacity>
         </View>
@@ -132,17 +176,29 @@ export default function LabelsSettingsScreen() {
           <Text style={[styles.tableHeaderText, { flex: 1 }]}>Name</Text>
         </View>
         
-        {['Aktuelle Bewerbungen', 'Archive', 'Bewerbungen', 'Blocked', 'Erledigt', 'Junk Email', 'Later', 'Motive', 'Reinigung', 'Verfügbarkeiten'].map((labelName) => (
-          <View key={labelName} style={styles.tableRow}>
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={[styles.tagIcon, { color: Colors.textTertiary }]}>🏷</Text>
-              <Text style={styles.tableCellText}>{labelName}</Text>
-            </View>
-            <View style={{ width: 40, alignItems: 'center' }}>
-              <TouchableOpacity><Text style={styles.moreIcon}>⋯</Text></TouchableOpacity>
-            </View>
+        {emailLabelsLoading ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <ActivityIndicator color={Colors.primary} />
           </View>
-        ))}
+        ) : emailLabels.length === 0 ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ color: Colors.textTertiary }}>Keine Ordner gefunden</Text>
+          </View>
+        ) : (
+          emailLabels.map((folder) => (
+            <View key={folder.path} style={styles.tableRow}>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={[styles.tagIcon, { color: Colors.textTertiary }]}>{folder.specialUse ? '📁' : '🏷'}</Text>
+                <Text style={styles.tableCellText}>{folder.name}</Text>
+              </View>
+              <View style={{ width: 40, alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => handleDeleteFolder(folder.path, folder.name)}>
+                  <Text style={styles.moreIcon}>⋯</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )}
       </View>
     </ScrollView>
     );
@@ -194,12 +250,12 @@ export default function LabelsSettingsScreen() {
             </View>
             <View>
               <Text style={[styles.sidebarItemTitle, selectedItem === 'org' && styles.sidebarItemTitleActive]}>{teamName}</Text>
-              <Text style={[styles.sidebarItemSubtitle, selectedItem === 'org' && styles.sidebarItemSubtitleActive]}>3 labels</Text>
+              <Text style={[styles.sidebarItemSubtitle, selectedItem === 'org' && styles.sidebarItemSubtitleActive]}>{orgLabels.length} labels</Text>
             </View>
           </TouchableOpacity>
 
         </ScrollView>
-        <TouchableOpacity style={styles.sidebarFooter}>
+        <TouchableOpacity style={styles.sidebarFooter} onPress={() => setShowCreateModal(true)}>
           <Text style={styles.sidebarFooterText}>Label erstellen</Text>
         </TouchableOpacity>
       </View>
@@ -240,11 +296,160 @@ export default function LabelsSettingsScreen() {
         
         {selectedItem === 'org' ? renderOrgContent() : renderEmailContent()}
       </View>
+
+      {/* Create Label Modal */}
+      <Modal visible={showCreateModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Neues Label erstellen</Text>
+            
+            <Text style={styles.modalLabel}>Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newLabelName}
+              onChangeText={setNewLabelName}
+              placeholder="z.B. Wichtig"
+              autoFocus
+            />
+
+            <Text style={styles.modalLabel}>Farbe</Text>
+            <View style={styles.colorPicker}>
+              {['#00B388', '#1E90FF', '#7B68EE', '#F06A6A', '#FFA500', '#808080'].map(color => (
+                <TouchableOpacity
+                  key={color}
+                  style={[styles.colorOption, { backgroundColor: color }, newLabelColor === color && styles.colorOptionSelected]}
+                  onPress={() => setNewLabelColor(color)}
+                />
+              ))}
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowCreateModal(false)}>
+                <Text style={styles.modalCancelBtnText}>Abbrechen</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalSubmitBtn, (!newLabelName.trim() || isCreating) && { opacity: 0.5 }]} onPress={handleCreateLabel} disabled={!newLabelName.trim() || isCreating}>
+                {isCreating ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={styles.modalSubmitBtnText}>Erstellen</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Create Email Folder Modal */}
+      <Modal visible={showCreateFolderModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Neuen IMAP-Ordner erstellen</Text>
+            
+            <Text style={styles.modalLabel}>Ordnername</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              placeholder="z.B. Projekte"
+              autoFocus
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowCreateFolderModal(false)}>
+                <Text style={styles.modalCancelBtnText}>Abbrechen</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalSubmitBtn, (!newFolderName.trim() || isCreatingFolder) && { opacity: 0.5 }]} onPress={handleCreateFolder} disabled={!newFolderName.trim() || isCreatingFolder}>
+                {isCreatingFolder ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={styles.modalSubmitBtnText}>Erstellen</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: Spacing.xl,
+    width: 400,
+    maxWidth: '90%',
+  },
+  modalTitle: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.text,
+    marginBottom: Spacing.lg,
+  },
+  modalLabel: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+    padding: Spacing.md,
+    fontFamily: FontFamily,
+    fontSize: FontSize.md,
+    color: Colors.text,
+    marginBottom: Spacing.lg,
+  },
+  colorPicker: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
+  },
+  colorOption: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  colorOptionSelected: {
+    borderWidth: 3,
+    borderColor: Colors.text,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: Spacing.md,
+  },
+  modalCancelBtn: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+  },
+  modalCancelBtnText: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+  },
+  modalSubmitBtn: {
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: 8,
+  },
+  modalSubmitBtnText: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: '#FFF',
+  },
   container: {
     flex: 1,
     flexDirection: 'row',

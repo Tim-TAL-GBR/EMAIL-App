@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
 # This Dockerfile is optimized for monorepo using pnpm
 
@@ -16,13 +16,13 @@ COPY server ./server
 
 # Install dependencies and build
 FROM base AS build
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --no-frozen-lockfile
 RUN pnpm run build
 
 # Production image
 FROM base AS prod
 # Only install production dependencies
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --no-frozen-lockfile
 
 # Copy built outputs from the build stage
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist

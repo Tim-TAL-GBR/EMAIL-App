@@ -1,8 +1,6 @@
 import { API_URL } from "@/lib/constants";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-
-
 
 export interface TeamData {
   id: string;
@@ -11,23 +9,22 @@ export interface TeamData {
   parent_id: string | null;
 }
 
-let cachedTeams: TeamData[] | null = null;
-let lastFetchAttempt = 0;
-
 export function useTeams() {
-  const [teams, setTeams] = useState<TeamData[]>(cachedTeams ?? []);
+  const cache = useRef<{ teams: TeamData[] | null; lastFetch: number }>({ teams: null, lastFetch: 0 });
+  const [teams, setTeams] = useState<TeamData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (cachedTeams !== null) {
-      setTeams(cachedTeams);
+    let mounted = true;
+
+    if (cache.current.teams !== null) {
+      setTeams(cache.current.teams);
       return;
     }
 
-    // Avoid fetching more than once every 30s
     const now = Date.now();
-    if (now - lastFetchAttempt < 30_000 && lastFetchAttempt > 0) return;
-    lastFetchAttempt = now;
+    if (now - cache.current.lastFetch < 30_000 && cache.current.lastFetch > 0) return;
+    cache.current.lastFetch = now;
 
     setIsLoading(true);
     (async () => {
@@ -43,15 +40,20 @@ export function useTeams() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const arr = Array.isArray(data) ? data : [];
-        cachedTeams = arr;
-        setTeams(arr);
+        if (mounted) {
+          cache.current.teams = arr;
+          setTeams(arr);
+        }
       } catch (e) {
         console.error('Failed to fetch teams:', e);
-        // Don't cache failures – allow retry on next mount
       } finally {
-        setIsLoading(false);
+        if (mounted) setIsLoading(false);
       }
     })();
+    
+    return () => {
+      mounted = false;
+    };
   }, []);
   
   const safeTeams = Array.isArray(teams) ? teams : [];

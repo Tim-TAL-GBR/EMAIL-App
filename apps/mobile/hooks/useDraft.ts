@@ -69,7 +69,13 @@ export function useDraft(inboxId: string, threadId?: string | null, options?: Us
       if (stale) supabase.removeChannel(stale);
 
       const channel = supabase.channel(channelName)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'drafts', filter: filterStr }, loadDraft)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'drafts', filter: filterStr }, (payload) => {
+          if (payload.eventType === 'DELETE') {
+            setDraft(null);
+          } else {
+            setDraft(payload.new as Draft);
+          }
+        })
         .subscribe();
 
       return () => {
@@ -79,7 +85,8 @@ export function useDraft(inboxId: string, threadId?: string | null, options?: Us
   }, [inboxId, loadDraft, fetchExisting, threadId, draftId]);
 
   const saveDraft = useCallback(async (
-    draftData: Partial<Draft>
+    draftData: Partial<Draft>,
+    options?: { signal?: AbortSignal }
   ) => {
     // If we don't have a team_id yet, we need to get it from the inbox
     let teamId = draftData.team_id || draft?.team_id;
@@ -97,31 +104,30 @@ export function useDraft(inboxId: string, threadId?: string | null, options?: Us
 
     if (draft?.id) {
       // Update existing draft
-      const { data, error } = await supabase
-        .from('drafts')
-        .update(payload)
-        .eq('id', draft.id)
-        .select()
-        .single();
+      let query = supabase.from('drafts').update(payload).eq('id', draft.id);
+      if (options?.signal) query = query.abortSignal(options.signal);
+      const { data, error } = await query.select().single();
         
       if (!error && data) {
         setDraft(data as any);
+      } else if (error) {
+        throw error;
       }
     } else {
       // Create new draft
       // Also set created_by
       const { data: userData } = await supabase.auth.getUser();
-      const { data, error } = await supabase
-        .from('drafts')
-        .insert({
-          ...payload,
-          created_by: userData?.user?.id
-        })
-        .select()
-        .single();
+      let query = supabase.from('drafts').insert({
+        ...payload,
+        created_by: userData?.user?.id
+      });
+      if (options?.signal) query = query.abortSignal(options.signal);
+      const { data, error } = await query.select().single();
         
       if (!error && data) {
         setDraft(data as any);
+      } else if (error) {
+        throw error;
       }
     }
   }, [draft, inboxId, threadId]);

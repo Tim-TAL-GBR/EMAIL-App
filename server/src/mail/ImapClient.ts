@@ -173,74 +173,64 @@ export class ImapClient {
       console.log(`[ImapClient] Starting fetch for folder: ${mailboxPath}...`);
       await this.client.mailboxOpen(mailboxPath);
       if (!this.client.mailbox) return;
-      console.log(`[ImapClient] Starting fetchNewMessages...`);
-      // 1. Fetch all unseen messages
-      const unseenSeq = await this.client.search({ seen: false });
-      console.log(`[ImapClient] unseenSeq:`, unseenSeq);
       
-      // 2. Fetch history: use highest UID if available, else sync_since, else last 20
-      let recentSeq: number[] = [];
-      try {
-        const supabase = getSupabaseAdmin();
+      const total = this.client.mailbox.exists;
+      if (total === 0) return;
+      
+      console.log(`[ImapClient] Total messages in mailbox: ${total}`);
+      
+      // 1. Get all UIDs on the server
+      const serverUids = await this.client.search({ all: true }, { uid: true }) || [];
+      if (serverUids.length === 0) return;
+      
+      // 2. Get all UIDs currently in the DB for this folder
+      const supabase = getSupabaseAdmin();
+      const dbMailboxName = this.mailboxNameForPath(mailboxPath);
+      
+      const { data: dbEmails, error } = await supabase
+        .from("emails")
+        .select("imap_uid")
+        .eq("inbox_id", this.config.inboxId)
+        .eq("mailbox_name", dbMailboxName)
+        .not("imap_uid", "is", null);
         
-        const dbMailboxName = this.mailboxNameForPath(mailboxPath);
-
-        const { data: lastEmail } = await supabase.from('emails')
-          .select('imap_uid')
-          .eq('inbox_id', this.config.inboxId)
-          .eq('mailbox_name', dbMailboxName)
-          .order('imap_uid', { ascending: false })
-          .limit(1)
-          .single();
-          
-        const highestUid = lastEmail?.imap_uid || 0;
-        
-        if (highestUid > 0) {
-          console.log(`[ImapClient] Searching UID > ${highestUid}`);
-          recentSeq = await this.client.search({ uid: `${highestUid + 1}:*` }) || [];
-          console.log(`[ImapClient] recentSeq new UIDs:`, recentSeq?.length);
-        } else if (this.config.sync_since) {
-          console.log(`[ImapClient] Searching since ${this.config.sync_since}`);
-          const sinceDate = new Date(this.config.sync_since);
-          recentSeq = await this.client.search({ since: sinceDate }) || [];
-          console.log(`[ImapClient] recentSeq since date:`, recentSeq?.length);
-        } else {
-          const total = this.client.mailbox.exists;
-          console.log(`[ImapClient] Total messages in mailbox: ${total}`);
-          if (total > 0) {
-            const start = Math.max(1, total - 19);
-            console.log(`[ImapClient] Searching sequence ${start}:${total}`);
-            recentSeq = await this.client.search({ seq: `${start}:${total}` }) || [];
-            console.log(`[ImapClient] recentSeq range:`, recentSeq?.length);
-          }
-        }
-      } catch (e) {
-        console.error('[ImapClient] Error querying max UID:', e);
-      }
-
-      // Combine and deduplicate, sort descending (newest first)
-      const fetchSet = new Set([...(unseenSeq || []), ...(recentSeq || [])]);
-      const fetchArr = Array.from(fetchSet).sort((a, b) => b - a);
-
-      if (fetchArr.length === 0) {
+      if (error) {
+        console.error('[ImapClient] Error querying db emails:', error);
         return;
       }
-
-      console.log(`[ImapClient] Fetching ${fetchArr.length} messages for ${this.config.user}`);
-
-      for (const seq of fetchArr) {
-        // Fetch full message source
-        const message = await this.client.fetchOne(seq, { source: true, uid: true, flags: true });
+      
+      const dbUidSet = new Set((dbEmails || []).map((e: any) => e.imap_uid));
+      
+      // 3. Find missing UIDs (on server but not in DB)
+      const missingUids = serverUids.filter((uid: number) => !dbUidSet.has(uid));
+      
+      if (missingUids.length === 0) {
+        console.log(`[ImapClient] No missing emails to fetch for ${mailboxPath}.`);
+        return;
+      }
+      
+      console.log(`[ImapClient] Fetching ${missingUids.length} missing messages for ${this.config.user}`);
+      
+      // Fetch in chunks of 200 UIDs
+      const CHUNK_SIZE = 200;
+      // Sort descending to fetch newest first
+      missingUids.sort((a, b) => b - a);
+      
+      for (let i = 0; i < missingUids.length; i += CHUNK_SIZE) {
+        const chunk = missingUids.slice(i, i + CHUNK_SIZE);
+        console.log(`[ImapClient] Fetching chunk ${i} to ${i + chunk.length} for ${mailboxPath}...`);
         
-        if (message && message.source) {
-          console.log(`[ImapClient] Fetched msg ${seq} uid ${message.uid} flags:`, message.flags);
-          const isUnseen = (unseenSeq || []).includes(seq);
-          await this.processMessage(message.source, message.uid, !isUnseen, mailboxPath, message.flags ? [...message.flags] : undefined);
-          
-          if (isUnseen) {
-            // Mark as seen
-            await this.client.messageFlagsAdd(seq, ["\\Seen"]);
+        const uidSequence = chunk.join(',');
+        
+        try {
+          for await (const message of this.client.fetch(uidSequence, { source: true, uid: true, flags: true }, { uid: true })) {
+            if (message && message.source) {
+              const isSeenOnServer = message.flags ? message.flags.has('\\Seen') : false;
+              await this.processMessage(message.source, message.uid, isSeenOnServer, mailboxPath, message.flags ? Array.from(message.flags) : undefined);
+            }
           }
+        } catch (fetchErr) {
+          console.error(`[ImapClient] Error fetching chunk for ${mailboxPath}:`, fetchErr);
         }
       }
     } catch (error) {
@@ -526,6 +516,33 @@ export class ImapClient {
       body: `${from}: ${subject}`,
       data: { emailId, inboxId: this.config.inboxId }
     });
+  }
+
+  public async createFolder(name: string): Promise<string> {
+    if (!this.isConnected) await this.connect();
+    // imapflow's mailboxCreate returns the created mailbox info or throws
+    const result = await this.client.mailboxCreate(name);
+    // Update local cache
+    const folders = await this.client.list();
+    this.allFolders = folders.map(f => ({ path: f.path, name: f.name, specialUse: f.specialUse }));
+    return result.path;
+  }
+
+  public async deleteFolder(path: string): Promise<void> {
+    if (!this.isConnected) await this.connect();
+    await this.client.mailboxDelete(path);
+    // Update local cache
+    const folders = await this.client.list();
+    this.allFolders = folders.map(f => ({ path: f.path, name: f.name, specialUse: f.specialUse }));
+  }
+
+  public async renameFolder(oldPath: string, newPath: string): Promise<string> {
+    if (!this.isConnected) await this.connect();
+    const result = await this.client.mailboxRename(oldPath, newPath);
+    // Update local cache
+    const folders = await this.client.list();
+    this.allFolders = folders.map(f => ({ path: f.path, name: f.name, specialUse: f.specialUse }));
+    return result.path;
   }
 
   public async deleteMessage(uid: number, mailbox: string = "INBOX"): Promise<void> {

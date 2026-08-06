@@ -6,26 +6,13 @@ import { getSupabaseAdmin } from "../services/auth.service.js";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 
+import { requireAuth } from "../middleware/expressAuth.middleware.js";
+
 export const mailRouter: Router = Router();
 
+mailRouter.use(requireAuth);
 mailRouter.post("/test-connection", async (req, res) => {
   try {
-    // 1. Authenticate via token in Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({ error: "Missing or invalid Authorization header" });
-      return;
-    }
-    
-    const token = authHeader.split(" ")[1];
-    const { verifySupabaseToken } = await import("../middleware/auth.middleware.js");
-    const payload = await verifySupabaseToken(token);
-    
-    if (!payload || !payload.sub) {
-      res.status(401).json({ error: "Invalid token" });
-      return;
-    }
-
     const { imap, smtp } = req.body;
     if (!imap || !smtp) {
       res.status(400).json({ error: "Missing imap or smtp config" });
@@ -83,21 +70,7 @@ mailRouter.post("/test-connection", async (req, res) => {
 
 mailRouter.post("/restart-client", async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({ error: "Missing or invalid Authorization header" });
-      return;
-    }
-    
-    const token = authHeader.split(" ")[1];
-    const { verifySupabaseToken } = await import("../middleware/auth.middleware.js");
-    const payload = await verifySupabaseToken(token);
-    
-    if (!payload || !payload.sub) {
-      res.status(401).json({ error: "Invalid token" });
-      return;
-    }
-
+    const payload = req.user!;
     const { inboxId } = req.body;
     if (!inboxId) {
       res.status(400).json({ error: "Missing inboxId" });
@@ -124,32 +97,10 @@ mailRouter.post("/restart-client", async (req, res) => {
 
 mailRouter.post("/send", async (req, res) => {
   try {
-    // 1. Authenticate via token in Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({ error: "Missing or invalid Authorization header" });
-      return;
-    }
-    
-    // We reuse authenticateWs slightly differently, or just verify the token.
-    // For simplicity, let's verify using the existing function.
-    // We pass a dummy req object just to extract the token from query if we were using WS, 
-    // but here we can just extract the token string.
-    const token = authHeader.split(" ")[1];
-    
-    // Quick inline verify:
-    const { verifySupabaseToken } = await import("../middleware/auth.middleware.js");
-    const payload = await verifySupabaseToken(token);
-    
-    if (!payload || !payload.sub) {
-      res.status(401).json({ error: "Invalid token" });
-      return;
-    }
-    
-    const userId = payload.sub;
+    const userId = req.user!.sub;
 
     // 2. Extract payload
-    const { inboxId, to, cc, bcc, subject, bodyText, bodyHtml, inReplyTo, references, attachments, fromAddress, status } = req.body;
+    const { inboxId, to, cc, bcc, subject, bodyText, bodyHtml, inReplyTo, references, attachments, fromAddress, status, threadId } = req.body;
 
     if (!inboxId || !to || to.length === 0 || !subject || !bodyText) {
       console.log("[MailRoutes] Missing fields in /send. Payload:", { inboxId, to, subject, hasBody: !!bodyText });
@@ -174,7 +125,7 @@ mailRouter.post("/send", async (req, res) => {
     }
 
     // 5. Send Email via SMTP
-    await smtpClient.sendEmail({
+    const newEmail = await smtpClient.sendEmail({
       inboxId,
       teamId: inbox.team_id,
       to,
@@ -188,9 +139,10 @@ mailRouter.post("/send", async (req, res) => {
       fromAddress,
       attachments,
       status,
+      threadId,
     });
 
-    res.json({ success: true, message: "Email sent successfully" });
+    res.json({ success: true, message: "Email sent successfully", email: newEmail });
   } catch (error: any) {
     console.error("[MailRoutes] Error sending email:", error);
     res.status(500).json({ error: safeErrorMessage(error) });

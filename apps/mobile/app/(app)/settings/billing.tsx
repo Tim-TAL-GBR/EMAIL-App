@@ -1,29 +1,52 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Linking, Alert } from 'react-native';
 import { Colors, Spacing, FontFamily, FontSize, FontWeight, Layout } from '../../../lib/constants';
-import { useInboxes } from '../../../hooks/useInboxes';
 import { supabase } from '../../../lib/supabase';
 import { API_URL } from '../../../lib/constants';
 
+async function apiRequest(path: string, method = 'GET', body?: object) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session?.access_token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error(res.ok ? 'Ungültige Serverantwort' : 'Server nicht erreichbar oder fehlerhaft (HTML).'); }
+  if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
+  return json;
+}
+
 export default function BillingSettingsScreen() {
-  const { inboxes } = useInboxes();
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const teamId = React.useMemo(() => {
-    for (const inbox of inboxes) {
-      if (inbox.team_id) return inbox.team_id;
-    }
-    return null;
-  }, [inboxes]);
+  const activeOrg = React.useMemo(() => organizations.find(o => o.id === activeOrgId), [organizations, activeOrgId]);
+  const teamId = activeOrg?.id;
+  const teamName = activeOrg?.name || 'Organisation';
 
-  const teamName = React.useMemo(() => {
-    for (const inbox of inboxes) {
-      if (inbox.team?.name) return inbox.team.name;
+  useEffect(() => {
+    async function loadOrgs() {
+      try {
+        const data = await apiRequest('/api/teams');
+        const orgs = (data || []).filter((t: any) => !t.parent_id);
+        setOrganizations(orgs);
+        if (orgs.length > 0 && !activeOrgId) {
+          setActiveOrgId(orgs[0].id);
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
-    return 'Organisation';
-  }, [inboxes]);
+    loadOrgs();
+  }, []);
 
   useEffect(() => {
     async function loadBilling() {
@@ -31,6 +54,7 @@ export default function BillingSettingsScreen() {
         setIsLoading(false);
         return;
       }
+      setIsLoading(true);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -41,18 +65,20 @@ export default function BillingSettingsScreen() {
         .select('role')
         .eq('team_id', teamId)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
       
       if (member) setRole(member.role);
+      else setRole(null);
 
       // Get subscription status
       const { data: sub } = await supabase
         .from('subscriptions')
         .select('*')
         .eq('org_id', teamId)
-        .single();
+        .maybeSingle();
       
       if (sub) setSubscription(sub);
+      else setSubscription(null);
 
       setIsLoading(false);
     }
@@ -105,17 +131,26 @@ export default function BillingSettingsScreen() {
             />
           </View>
           
-          <TouchableOpacity style={styles.sidebarItemActive}>
-            <View style={styles.orgAvatar}>
-              <Text style={styles.orgAvatarText}>{teamName.substring(0, 2).toUpperCase()}</Text>
-            </View>
-            <View>
-              <Text style={styles.sidebarItemTitleActive}>{teamName}</Text>
-              <Text style={styles.sidebarItemSubtitleActive}>
-                {subscription?.plan === 'pro' ? 'Pro Plan' : 'Free Trial'} • {subscription?.status || 'trialing'}
-              </Text>
-            </View>
-          </TouchableOpacity>
+          {organizations.map(org => {
+            const isActive = org.id === activeOrgId;
+            return (
+              <TouchableOpacity 
+                key={org.id} 
+                style={isActive ? styles.sidebarItemActive : styles.sidebarItem}
+                onPress={() => setActiveOrgId(org.id)}
+              >
+                <View style={isActive ? styles.orgAvatarActive : styles.orgAvatar}>
+                  <Text style={isActive ? styles.orgAvatarTextActive : styles.orgAvatarText}>{org.name.substring(0, 2).toUpperCase()}</Text>
+                </View>
+                <View>
+                  <Text style={isActive ? styles.sidebarItemTitleActive : styles.sidebarItemTitle}>{org.name}</Text>
+                  <Text style={isActive ? styles.sidebarItemSubtitleActive : styles.sidebarItemSubtitle}>
+                    {isActive && subscription ? (subscription.plan === 'pro' ? 'Pro Plan' : 'Free Trial') : 'Organisation'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -202,6 +237,40 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.text,
   },
+  sidebarItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.sm,
+    marginHorizontal: Spacing.sm,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  sidebarItemTitle: {
+    fontFamily: FontFamily,
+    fontSize: FontSize.sm,
+    fontWeight: '500',
+    color: Colors.text,
+  },
+  sidebarItemSubtitle: {
+    fontFamily: FontFamily,
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  orgAvatarActive: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F06A6A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.sm,
+  },
+  orgAvatarTextActive: {
+    color: '#FFF',
+    fontFamily: FontFamily,
+    fontSize: FontSize.xs,
+    fontWeight: 'bold',
+  },
   sidebarItemActive: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -209,6 +278,7 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.sm,
     borderRadius: 6,
     backgroundColor: Colors.info,
+    marginBottom: 4,
   },
   orgAvatar: {
     width: 28,

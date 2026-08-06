@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, Shadows, BorderRadius } from '../../lib/constants';
 import { ChatMessage } from './ChatMessage';
@@ -79,7 +79,7 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
     // Pass mentions to addComment
     const { error } = await addComment(text, currentMentions);
     if (error) {
-      alert('Fehler beim Senden: ' + error.message);
+      Alert.alert('Fehler beim Senden', error.message);
       setNewComment(text); // revert
       setMentionedUsers(currentMentions);
     } else {
@@ -140,6 +140,7 @@ export function ChatFeed({ emailId, emails, inboxId, threadId, onEmailStatusChan
           visible={showMentionPicker} 
           query={mentionQuery} 
           onSelect={handleMentionSelect} 
+          inboxId={inboxId}
         />
         <View style={styles.inputWrapper}>
           <Input

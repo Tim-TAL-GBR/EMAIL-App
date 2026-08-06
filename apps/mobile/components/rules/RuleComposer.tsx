@@ -136,8 +136,9 @@ export function RuleComposer({ visible, onClose, teamId, initialCondition }: Rul
     </View>
   );
 
+  // AI WARNING: DO NOT ADD presentationStyle="pageSheet" or "formSheet" here. Using it with transparent={true} causes EXC_BAD_ACCESS native crashes on macOS Catalyst!
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="formSheet" transparent>
+    <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
           <View style={styles.header}>

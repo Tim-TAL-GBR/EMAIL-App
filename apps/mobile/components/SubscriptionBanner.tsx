@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Colors, Spacing, FontSize, FontWeight } from '../../lib/constants';
-import { useInboxes } from '../../hooks/useInboxes';
-import { supabase } from '../../lib/supabase';
+import { Colors, Spacing, FontSize, FontWeight } from '../lib/constants';
+import { useInboxes } from '../hooks/useInboxes';
+import { supabase } from '../lib/supabase';
 
 export function SubscriptionBanner() {
   const { inboxes } = useInboxes();
@@ -41,6 +41,26 @@ export function SubscriptionBanner() {
           const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
           setDaysLeft(days > 0 ? days : 0);
         }
+      } else {
+        // No subscription found, check if 14-day trial has expired
+        const { data: team } = await supabase
+          .from('teams')
+          .select('created_at')
+          .eq('id', teamId)
+          .single();
+
+        if (team && team.created_at) {
+          const createdDate = new Date(team.created_at);
+          const now = new Date();
+          const diffDays = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (diffDays > 14) {
+            setStatus('trial_expired');
+          } else {
+            setStatus('trialing');
+            // optionally we could setDaysLeft to 14 - diffDays if we want to show it, but for now we just keep it active/trialing
+          }
+        }
       }
     }
 
@@ -57,8 +77,9 @@ export function SubscriptionBanner() {
   return (
     <View style={styles.banner}>
       <Text style={styles.bannerText}>
-        Dein Abonnement ist abgelaufen. Dein Postfach ist im "Nur-Lesen"-Modus. 
-        Deine Daten werden in {daysLeft} Tagen gelöscht.
+        {status === 'trial_expired' 
+          ? 'Dein 14-tägiger Testzeitraum ist abgelaufen. Bitte kaufe jetzt ein Abonnement, um TeamMail weiterhin zu nutzen.'
+          : `Dein Abonnement ist abgelaufen. Dein Postfach ist im "Nur-Lesen"-Modus. Deine Daten werden in ${daysLeft} Tagen gelöscht.`}
       </Text>
       <TouchableOpacity 
         style={styles.button}

@@ -13,7 +13,9 @@ async function apiRequest(path: string, method = 'GET') {
       'Authorization': `Bearer ${session?.access_token}`,
     },
   });
-  const json = await res.json();
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error(res.ok ? `Ungültige Serverantwort` : `Server nicht erreichbar oder fehlerhaft (HTML).`); }
   if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
   return json;
 }
@@ -22,6 +24,7 @@ export default function AdminSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
   
   const [activeTab, setActiveTab] = useState<'orgs'|'users'>('orgs');
 
@@ -29,6 +32,7 @@ export default function AdminSettingsScreen() {
 
   const loadData = async () => {
     try {
+      setError(null);
       const [orgsData, usersData] = await Promise.all([
         apiRequest('/api/admin/organizations'),
         apiRequest('/api/admin/users')
@@ -36,7 +40,11 @@ export default function AdminSettingsScreen() {
       setOrganizations(orgsData);
       setUsers(usersData);
     } catch (e: any) {
-      Alert.alert('Fehler', 'Keine Super-Admin Berechtigung oder Fehler beim Laden: ' + e.message);
+      if (e.message.includes('Super Admin privileges required')) {
+        setError('Keine Super-Admin Berechtigung. Du hast keinen Zugriff auf dieses Dashboard.');
+      } else {
+        setError('Fehler beim Laden: ' + e.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -46,6 +54,21 @@ export default function AdminSettingsScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Super Admin Dashboard</Text>
+        </View>
+        <View style={{ padding: Spacing.xl, alignItems: 'center' }}>
+          <Text style={{ fontSize: FontSize.lg, color: Colors.error, fontFamily: FontFamily, textAlign: 'center' }}>
+            {error}
+          </Text>
+        </View>
       </View>
     );
   }

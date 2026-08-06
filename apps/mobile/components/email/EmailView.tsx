@@ -312,9 +312,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
           });
         }}
         headerComponent={
-          <View style={styles.threadContainer}>
-
-
+          <View style={{ paddingBottom: Spacing.sm }}>
             <View style={styles.subjectContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
                 <Text style={styles.subjectText} numberOfLines={1}>{selectedThread.subject}</Text>
@@ -332,6 +330,7 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
           </View>
         }
       />
+      </View>
       </View>
       
       {Platform.OS === 'web' ? (
@@ -399,7 +398,14 @@ export function EmailView({ emailId: threadId }: EmailViewProps) {
               sourceEmail: selectedThread.latestEmail
             });
           } },
-          { id: 'fwd', label: 'Weiterleiten', icon: 'corner-up-right', onPress: () => Alert.alert('Info', 'Weiterleiten ausgewählt') },
+          { id: 'fwd', label: 'Weiterleiten', icon: 'corner-up-right', onPress: () => {
+            setMoreMenuVisible(false);
+            openComposer({
+              mode: 'forward',
+              inboxId: selectedThread.latestEmail.inbox_id,
+              sourceEmail: selectedThread.latestEmail
+            });
+          } },
           { id: 'resend', label: 'Erneut senden', icon: 'rotate-cw', onPress: () => Alert.alert('Info', 'Erneut senden ausgewählt') },
           { id: 'pin', label: isPinned ? 'Von Favoriten entfernen' : 'In Favoriten anpinnen', icon: 'star', onPress: () => {
             setMoreMenuVisible(false);
@@ -496,6 +502,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   threadContainer: {
+    flex: 1,
     paddingBottom: Spacing.sm,
   },
   actionBar: {

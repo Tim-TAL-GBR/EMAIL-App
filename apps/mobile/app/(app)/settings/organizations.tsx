@@ -16,7 +16,7 @@ async function apiRequest(path: string, method = 'GET', body?: object) {
     });
     const text = await res.text();
     let json;
-    try { json = JSON.parse(text); } catch { throw new Error(`Invalid JSON: ${text.substring(0, 100)}`); }
+    try { json = JSON.parse(text); } catch { throw new Error(res.ok ? `Ungültige Serverantwort` : `Server nicht erreichbar oder fehlerhaft (HTML).`); }
     if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
     return json;
   } catch (error: any) {
@@ -93,6 +93,11 @@ export default function OrganizationsSettingsScreen() {
       setActiveOrgId(team.id);
       setShowCreateOrgModal(false);
       setNewOrgName('');
+      
+      Alert.alert(
+        'Testzeitraum gestartet',
+        'Dein 14-tägiger Testzeitraum für diese Organisation hat begonnen. Du kannst in dieser Zeit alle Funktionen testen.'
+      );
     } catch (error: any) {
       Alert.alert('Fehler', error.message);
     } finally {

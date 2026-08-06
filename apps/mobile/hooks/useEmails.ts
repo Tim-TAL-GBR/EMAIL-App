@@ -9,7 +9,7 @@
  * the React Strict Mode double-invoke crash.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useEmailStore, type Email } from '../stores/emailStore';
 import { ContextType, useNavigationStore } from '../stores/navigationStore';
@@ -71,9 +71,14 @@ export function useEmails(inboxIds: string[], labelId?: string, activeContextTyp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inboxIdsStr, labelId, activeFilter, activeMailbox]);
 
-  return {
+    const isInboxView = activeContextType !== 'assigned' && !activeMailbox && activeFilter !== 'archived' && activeFilter !== 'trash' && activeFilter !== 'sent' && activeFilter !== 'drafts';
+    const filteredThreads = useMemo(() => {
+      return isInboxView ? store.threads.filter(t => !t.emails.every(e => e.direction === 'outbound')) : store.threads;
+    }, [isInboxView, store.threads]);
+
+    return {
     emails: store.emails,
-    threads: store.threads,
+    threads: filteredThreads,
     activeEmailId: store.activeEmailId,
     isLoading: store.isLoading,
     isLoadingMore: store.isLoadingMore,

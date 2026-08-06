@@ -8,11 +8,12 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Colors } from '../lib/constants';
 import { GlobalComposer } from '../components/email/GlobalComposer';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { OfflineBanner } from '../components/ui/OfflineBanner';
 import * as Sentry from '@sentry/react-native';
 
 Sentry.init({
   dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
-  tracesSampleRate: 1.0,
+  tracesSampleRate: 0.1,
 });
 
 SplashScreen.preventAutoHideAsync();
@@ -59,6 +60,7 @@ function RootLayout() {
         <ExpoStack.Screen name="(app)" options={{ headerShown: false }} />
       </ExpoStack>
       <GlobalComposer />
+      <OfflineBanner />
     </ErrorBoundary>
   );
 }

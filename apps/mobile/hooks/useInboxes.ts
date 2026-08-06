@@ -24,13 +24,15 @@ export function useInboxes() {
 
     // Remove any stale channel with the same name before subscribing.
     // This handles React Strict Mode's double-invoke of useEffect in dev.
-    const stale = supabase.getChannels().find((c) => c.topic === `realtime:${CHANNEL_NAME}`);
+    const channelId = Math.random().toString(36).slice(2);
+    const channelName = `${CHANNEL_NAME}-${channelId}`;
+    const stale = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
     if (stale) {
       supabase.removeChannel(stale);
     }
 
     const channel = supabase
-      .channel(CHANNEL_NAME)
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'inboxes' },

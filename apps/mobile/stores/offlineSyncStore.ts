@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 
 const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || 'http://localhost:3000';
 
-type ActionType = 'ARCHIVE' | 'DELETE' | 'MARK_READ' | 'REPLY';
+type ActionType = 'ARCHIVE' | 'DELETE' | 'MARK_READ' | 'REPLY' | 'UPDATE_STATUS' | 'SNOOZE' | 'TOGGLE_STAR';
 
 interface QueuedAction {
   id: string;
@@ -57,6 +57,7 @@ export const useOfflineSyncStore = create<OfflineSyncState>()(
         }
 
         const remainingQueue = [...queue];
+        const processedIds = new Set<string>();
 
         for (const action of queue) {
           try {
@@ -100,6 +101,7 @@ export const useOfflineSyncStore = create<OfflineSyncState>()(
             
             // Successfully processed, remove from queue
             remainingQueue.shift();
+            processedIds.add(action.id);
             
           } catch (error) {
             console.error(`Failed to process queued action ${action.type}:`, error);
@@ -108,7 +110,10 @@ export const useOfflineSyncStore = create<OfflineSyncState>()(
           }
         }
 
-        set({ queue: remainingQueue, isSyncing: false });
+        set(state => ({ 
+          queue: state.queue.filter(a => !processedIds.has(a.id)), 
+          isSyncing: false 
+        }));
       },
 
       clearQueue: () => {

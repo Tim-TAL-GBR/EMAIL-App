@@ -70,6 +70,12 @@ export default function TeamsSettingsScreen() {
   const [addMemberRole, setAddMemberRole] = useState('member');
   const [isAdding, setIsAdding] = useState(false);
 
+  // Shopify Config Modal
+  const [showShopifyConfig, setShowShopifyConfig] = useState(false);
+  const [shopifyApiKey, setShopifyApiKey] = useState('');
+  const [shopifyApiSecret, setShopifyApiSecret] = useState('');
+  const [isConfiguringShopify, setIsConfiguringShopify] = useState(false);
+
   const selectedTeam = teams.find(t => t.id === selectedTeamId);
   const canManage = selectedTeam && ['owner', 'admin'].includes(selectedTeam.myRole);
   const orgs = teams.filter(t => !t.parent_id);
@@ -184,6 +190,26 @@ export default function TeamsSettingsScreen() {
           Alert.alert('Fehler', e.message);
         }
       })();
+    }
+  };
+
+  const handleSaveShopifyConfig = async () => {
+    if (!selectedTeamId || !shopifyApiKey || !shopifyApiSecret) return;
+    setIsConfiguringShopify(true);
+    try {
+      await apiRequest('/api/shopify/app-config', 'POST', {
+        teamId: selectedTeamId,
+        apiKey: shopifyApiKey.trim(),
+        apiSecret: shopifyApiSecret.trim(),
+      });
+      Alert.alert('Erfolg', 'Shopify API-Schlüssel wurden gespeichert.');
+      setShowShopifyConfig(false);
+      setShopifyApiKey('');
+      setShopifyApiSecret('');
+    } catch (e: any) {
+      Alert.alert('Fehler', e.message);
+    } finally {
+      setIsConfiguringShopify(false);
     }
   };
 
@@ -318,6 +344,50 @@ export default function TeamsSettingsScreen() {
         </View>
       </Modal>
 
+      {/* Shopify Config Modal */}
+      <Modal visible={showShopifyConfig} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Shopify API Konfiguration</Text>
+              <TouchableOpacity onPress={() => setShowShopifyConfig(false)}>
+                <Text style={styles.closeIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalBody}>
+              <Text style={styles.modalHint}>
+                Hinterlege hier die Client ID und das Client Secret deiner eigenen Shopify Custom App.
+              </Text>
+              <Text style={[styles.modalLabel, { marginTop: Spacing.md }]}>Client ID (API Key)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="z.B. 7c9a..."
+                value={shopifyApiKey}
+                onChangeText={setShopifyApiKey}
+                autoCapitalize="none"
+              />
+              <Text style={[styles.modalLabel, { marginTop: Spacing.sm }]}>Client Secret (API Secret)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="z.B. shpss_..."
+                value={shopifyApiSecret}
+                onChangeText={setShopifyApiSecret}
+                autoCapitalize="none"
+                secureTextEntry
+              />
+            </View>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowShopifyConfig(false)}>
+                <Text style={styles.btnSecondaryText}>Abbrechen</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnPrimary, (!shopifyApiKey || !shopifyApiSecret || isConfiguringShopify) && { opacity: 0.5 }]} onPress={handleSaveShopifyConfig} disabled={!shopifyApiKey || !shopifyApiSecret || isConfiguringShopify}>
+                <Text style={styles.btnPrimaryText}>{isConfiguringShopify ? 'Speichern...' : 'Speichern'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Sidebar */}
       <View style={[styles.sidebar, isMobile && { width: '100%', height: 250, borderRightWidth: 0, borderBottomWidth: 1 }]}>
         <View style={styles.sidebarContent}>
@@ -435,6 +505,13 @@ export default function TeamsSettingsScreen() {
                   </View>
                 ))}
               </View>
+
+              <Text style={[styles.sectionTitle, { marginTop: Spacing.xl }]}>Integrationen</Text>
+              {canManage && (
+                <TouchableOpacity style={styles.inviteBtn} onPress={() => setShowShopifyConfig(true)}>
+                  <Text style={styles.inviteBtnText}>Shopify API konfigurieren</Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           </>
         ) : (
