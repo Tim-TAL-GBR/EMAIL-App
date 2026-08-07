@@ -31,12 +31,15 @@
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
         "POST_NOTIFICATIONS"
       ]
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -54,6 +57,12 @@
       "eas": {
         "projectId": "87b012c7-5c17-4beb-b4a2-fbb0d67494d9"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/87b012c7-5c17-4beb-b4a2-fbb0d67494d9"
     }
   }
 }
