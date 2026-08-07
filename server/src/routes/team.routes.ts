@@ -44,17 +44,19 @@ teamRouter.get("/", async (req, res) => {
       return;
     }
 
-    // Also fetch sub-teams where user is a member of the parent org
-    const { data: subTeams } = await supabase
-      .from("teams")
-      .select("id, name, slug, created_at, parent_id")
-      .not("parent_id", "is", null);
-
     const orgIds = userTeams?.filter((t: any) => !t.parent_id).map((t: any) => t.id) ?? [];
 
-    const extraSubTeams = (subTeams ?? []).filter(
-      (st) => !teamIds.includes(st.id) && orgIds.includes(st.parent_id)
-    );
+    // Only fetch sub-teams belonging to orgs the user is a member of
+    let extraSubTeams: any[] = [];
+    if (orgIds.length > 0) {
+      const { data: subTeams } = await supabase
+        .from("teams")
+        .select("id, name, slug, created_at, parent_id")
+        .in("parent_id", orgIds);
+
+      // Exclude teams where the user is already a direct member (avoid duplicates)
+      extraSubTeams = (subTeams ?? []).filter((st) => !teamIds.includes(st.id));
+    }
 
     const teams = [
       ...(userTeams?.map((t: any) => {
